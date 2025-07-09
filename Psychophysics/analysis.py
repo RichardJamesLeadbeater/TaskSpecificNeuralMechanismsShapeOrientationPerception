@@ -1,18 +1,12 @@
 import os
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import itertools as itls
 import scipy.stats as st
 from mytools.analysis import get_mean_data, get_ratio_data
-from mytools.dframe_tools import init_cols, to_csv_pkl, index_dframe, \
-    change_dframe_labels, custom_sort, change_dframe_colnames, spss_format
+from mytools.dframe_tools import init_cols, to_csv_pkl, index_dframe, custom_sort, spss_format
 from mytools.dict_tools import append_dicty
-from mytools.misc import add_cardinal_and_oblique
 from mytools.ratios import geomean
-from mytools.file_tools import unpickle
-from mytools.my_seaborn import barplot_err, load_seaborn_prefs, plot_bar, plot_iqr, plot_line, init_markers
-from mytools.string_tools import misc_symbols
 
 
 # Paths #
