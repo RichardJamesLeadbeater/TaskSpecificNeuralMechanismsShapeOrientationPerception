@@ -5,22 +5,16 @@ import os
 import time
 from copy import deepcopy
 from datetime import datetime
-import dill
 import numpy as np
-from numpy import asarray as arr
 import pandas as pd
 # import own modules
 from mytools.analysis import get_mean_data, get_oei_data
-from mytools.dframe_tools import to_csv_pkl, index_dframe, init_cols, change_dframe_labels, change_dframe_colnames
-from mytools.dict_tools import append_dicty, combine_dicts
+from mytools.dframe_tools import to_csv_pkl, change_dframe_colnames
 from mytools.os_tools import make_paths
 # import model components
-from components.plots import plot_wrapped_tunings
-from components.general_functions import get_boundaries, join_dicts, get_condcombos, remove_list_repeats
-from components.general_functions import asarray as my_asarray
-from components.run import mocs_task, staircase_task, run, false_function, check_if_skip_discrimination, \
-    remove_baseline_repeats
-from components.population_code import Params, Tiling, NeuralPopulation, PopulationCode, gen_population_code
+from components.general_functions import join_dicts, get_condcombos
+from components.run import mocs_task, staircase_task, run
+from components.population_code import Params, Tiling, gen_population_code
 
 
 def set_params(cond_dicty, cardinal_idx, oblique_idx):
@@ -104,7 +98,8 @@ if __name__ == '__main__':
                            # 'n_prefs': [89],  # [45, 54, 63, 72, 80]  # old_model: per 45 deg
                            # 'n_prefs': [135, 181],
                            # 'n_prefs': [270, 360],
-                           'n_prefs': [45, 60],
+                           # 'n_prefs': [45, 60],
+                           'n_prefs': [12],
                            'fwhm': [
                                np.round(_i * _j, 2) for _i in [57.6, 30.4, 22.2]
                                # np.round(_i * _j, 2) for _i in [22.2]
@@ -112,15 +107,15 @@ if __name__ == '__main__':
                            ],  # full-width half-max of gaussian tuning mod_orispace
                            'pref_distrib': [f"cos"],  # ['flat', 'cos', f'gauss_{sigma}']
                            'param_distrib': [f"cos"],  # 0['flat', 'cos', f'gauss_{sigma}']
-                           'rmax': [30, 60],  # max firing rate (Shen et al., 2014)
+                           'rmax': [60],  # max firing rate (Shen et al., 2014)
                            'spont': [3],  # spontaneous firing rate (used to be 0.03 * rmax, now a constant)
-                           'noise_scale': [1, 0.5],  # scalar of poisson-like noise
+                           'noise_scale': [1],  # scalar of poisson-like noise
                            'crf_exponent': [2],  # 2
                            'crf_c50': [24],  # 24
                            'pooling_extent': [10],  # used if distance-weighted pooling implemented (units=sigma)
                            },
               'oblique': {'deg_per_pref': [None],  # IGNORE # deg per pref
-                          'n_prefs': [45, 30],  # [45, 36, 27, 18, 10]
+                          'n_prefs': [12],  # [45, 36, 27, 18, 10]
                           # 'n_prefs': [135, 89],
                           # 'n_prefs': [270, 180],
                           'fwhm': [
@@ -129,9 +124,9 @@ if __name__ == '__main__':
                           ],
                           'pref_distrib': ["cos"],
                           'param_distrib': ["cos"],  # distrib of deg / pref across space
-                          'rmax': [30, 30],
+                          'rmax': [60],
                           'spont': [3],  # spontaneous firing rate (used to be 0.03 * rmax)
-                          'noise_scale': [1, 1],  # scalar
+                          'noise_scale': [1],  # scalar
                           'crf_exponent': [2],  # 2
                           'crf_c50': [24],  # 24
                           'pooling_extent': [10],  # used if distance-weighted pooling implemented (units = sigma)

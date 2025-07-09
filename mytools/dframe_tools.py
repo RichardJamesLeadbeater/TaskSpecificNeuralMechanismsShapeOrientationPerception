@@ -6,6 +6,17 @@ from .dict_tools import init_cols
 from mytools.list_tools import force_to_list
 
 
+def unique_combos(input_df, cond_list):
+    # Returns all unique combinations actually present within a DataFrame
+    df = input_df.copy()
+    df.fillna(0, inplace=True)
+    unique_combinations = df.groupby(cond_list, as_index=False).size().reset_index()
+    unique_combinations = unique_combinations[cond_list]  # removes extra columns
+    cond_combos = [tuple(row) for _, row in unique_combinations.iterrows()]
+
+    return cond_combos
+
+
 def change_dframe_labels(dframe, col, old_labels=None, new_labels=None):
     # Make a copy of the original DataFrame to avoid modifying in place
     output_dframe = dframe.copy()

@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
-from mytools.dframe_tools import index_dframe, get_cond_combos, change_dframe_labels
+from mytools.dframe_tools import index_dframe, get_cond_combos, change_dframe_labels, unique_combos
 from mytools.dict_tools import init_cols, append_dicty
+from mytools.list_tools import all_combinations
 from mytools.ratios import get_ori_ratio, geomean
 
 def get_mean_data(dframe, cond_list, dv):
@@ -53,3 +54,72 @@ def get_ratio_data(dframe, cond_list, ori_label, ratio_list=None, dv='threshold'
         append_dicty(mean_ratios, [*i_combo, len(i_dframe), g_mean, g_SE, CV])
     mean_ratios = pd.DataFrame(mean_ratios).sort_values(by=mean_cond_list)
     return indiv_ratios, mean_ratios
+
+def get_oei_data(input_df, cond_list, ori_label, dv='threshold'):
+    # Input mean_data / summary_data
+    df = input_df.copy()
+    df = df.fillna('NaN')
+    # INDIVIDUAL RATIOS #
+    oei_data = init_cols([*cond_list, 'score'])
+    cond_combos = get_cond_combos(df, cond_list)
+    for i_combo in cond_combos:
+        i_df = index_dframe(df, cond_list, i_combo)
+        if i_df.empty:
+            continue
+        cardinal_threshold = i_df[(i_df[ori_label] == 0)][dv].iloc[0]
+        oblique_threshold = i_df[(i_df[ori_label] == 45)][dv].iloc[0]
+        try:
+            append_dicty(oei_data, [*i_combo, oblique_threshold / cardinal_threshold])
+        except:
+            append_dicty(oei_data, [*i_combo, 'NaN'])
+    oei_df = pd.DataFrame(oei_data).sort_values(by=cond_list)
+
+    return oei_df
+
+def gen_oei_data(input_df, cond_list, ori_label, dv_label='threshold'):
+    df = input_df.copy()
+    df.fillna(0, inplace=True)
+
+    cardinal_df = index_dframe(df, ['ori_std'], [0])
+    oblique_df = index_dframe(df, ['ori_std'], [45])
+    # Ensure cond_nums are aligned
+    if not all(np.asarray(cardinal_df['cond_num']) == np.asarray(oblique_df['cond_num'])):
+        print(f"WARNING - COND NUMS DO NOT ALIGN DURING OEI CALCULATION")
+    oei_col = oblique_df['dv'].to_numpy() / cardinal_df['dv'].to_numpy()
+    oei_dframe = cardinal_df.copy()
+    oei_dframe['dv'] = oei_col
+
+    return oei_dframe
+
+def gen_cond_nums(input_df, ignore_list):
+    df = input_df.copy()
+    df.fillna(0, inplace=True)
+    # Keep columns not in ignore_list
+    cond_list = [col for col in df.columns if col not in ignore_list]
+    # Get unique combinations as tuples
+    cond_combos = unique_combos(df, cond_list)
+    # Create lookup table: combo (as tuple) → index
+    combo_LUT = {combo: idx for idx, combo in enumerate(cond_combos)}
+    # Map each row's condition to its corresponding index
+    df['cond_num'] = df[cond_list].apply(lambda row: combo_LUT[tuple(row)], axis=1)
+
+    return df
+
+
+def combine_conds(input_df_1, input_df_2, cond_list, cond_num_label='cond_num'):
+    # adding unique column labels from df_2 to df_1, matched by cond_num
+    df_1 = input_df_1.copy()
+    df_2 = input_df_2.copy()
+    output_data = []
+    for idx_cond in df_1[cond_num_label].unique():
+        i_df_1 = index_dframe(df_1, [cond_num_label], [idx_cond])
+        i_df_2 = index_dframe(df_2, [cond_num_label], [idx_cond])  # 1 ori
+        for i_col in cond_list:
+            if len(i_df_2[i_col].unique()) != 1:
+                print(f'ERROR IN COLUMN SHARING - {i_col}')
+                continue
+            i_df_1[i_col] = i_df_2[i_col].iloc[0]
+        output_data.append(i_df_1)
+    output_dframe = pd.concat(output_data)
+
+    return output_dframe

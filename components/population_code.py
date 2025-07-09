@@ -2,21 +2,15 @@ import numpy as np
 from numpy import asarray as arr, newaxis as nax
 from scipy.linalg import hankel
 from scipy.optimize import minimize
-from scipy.sparse import csr_matrix
 import pickle
-import time
 import random
 from .general_functions import get_attrib, save_attrib, find_nearest, generate_gaussian, generate_cosine, generate_vonmises,\
     sort_by_standard, normalise, poissonlike_noise, get_boundaries
 from components.run import set_random_seed
-from .general_functions import asarray as my_asarray
 from . import debugger
 import matplotlib.pyplot as plt
 import os
-from random import choice
-from mytools.mytools import assign_attrs
 from mytools.dframe_tools import init_cols
-from mytools.dict_tools import remove_keys
 
 
 def prefs_sampling_error(prefs_fun, scale, desired_n, **kwargs):

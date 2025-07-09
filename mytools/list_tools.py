@@ -10,8 +10,15 @@ def force_to_list(x):
     else:
         return list(x)
 
+def all_combinations(listy):
+    # Input should be a list of lists
+    # Output is all combinations of each original list element (order maintained)
+    combos = itls.product(*listy)
+    combos = list(combos)
 
-def shuffle_order(listy):
+    return combos
+
+def shuffle(listy):
     listy = list(copy.copy(listy))  # accounts for other datatypes
     random.shuffle(listy)
     return listy
