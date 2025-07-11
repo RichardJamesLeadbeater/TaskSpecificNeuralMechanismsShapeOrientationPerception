@@ -66,8 +66,6 @@ _plot_multifig = True
 # Plot settings for each experiment
 plot_settings = {
     'line_alpha': 0.8, 'title_y': 1.02, 'xlabel': f"Spatial frequency ({sym['cpd']})",
-    'figdims_title': (5.5, 4.3),
-    'figdims': (5, 3.5), 'mean_figdims': (9, 5), 'ratio_figdims': (6, 5),
     'dpi': 600, 'legend': True,
     # ylims
     'ratio_ylim': (0, 4), 'ratio_log_ylim': (0.95, 10),

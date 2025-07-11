@@ -12,8 +12,30 @@ def init_markers():
     return markers
 
 
+def add_custom_error(df, x=None, y=None, xerr=None, yerr=None):
+    """
+    Create a new DataFrame with manual error bars applied to x/y values.
+    Assumes one row per condition in the input DataFrame.
+    """
+    expanded_rows = []
+
+    for idx in df.index:
+        row = df.loc[idx]
+        triplet = pd.concat([df.loc[[idx]]] * 3, ignore_index=True)
+
+        if x and xerr:
+            triplet[x] = [row[x] - row[xerr], row[x], row[x] + row[xerr]]
+        if y and yerr:
+            triplet[y] = [row[y] - row[yerr], row[y], row[y] + row[yerr]]
+
+        expanded_rows.append(triplet)
+
+    return pd.concat(expanded_rows, ignore_index=True)
+
+
 def barplot_err(data, x, y, xerr=None, yerr=None, **kwargs):
-    # barplot with custom SE (produced by +- the t_sem from single value)
+    # Modify dataframe to have custom SE (produced by +- the t_sem from single value)
+    # Input data must only have one value per condition
     _data = []
     for _i in data.index:
         _data_i = pd.concat([data.loc[_i:_i]] * 3, ignore_index=True, sort=False)
@@ -26,9 +48,11 @@ def barplot_err(data, x, y, xerr=None, yerr=None, **kwargs):
 
     _data = pd.concat(_data, ignore_index=True, sort=False)
 
-    # _ax = sns.catplot(x=x, y=y, data=_data, ci='sd', kind='bar', **kwargs)
-    _ax = sns.barplot(x=x, y=y, data=_data, ci='sd', **kwargs)
-    return _ax
+    return _data
+    #
+    # # _ax = sns.catplot(x=x, y=y, data=_data, ci='sd', kind='bar', **kwargs)
+    # _ax = sns.barplot(x=x, y=y, data=_data, ci='sd', **kwargs)
+    # return _ax
 
 
 def load_seaborn_prefs(style="ticks", context="talk", custom_rc=None):
@@ -261,8 +285,6 @@ def plot_line(dframe, x, y, hue, palette='colorblind', hue_order=None, title='',
     # close plot before continuing
     if close_plot is True:
         plt.close(fig)
-    if kwargs.get('show') is True:
-        plt.show()
     return fig, ax
 
 

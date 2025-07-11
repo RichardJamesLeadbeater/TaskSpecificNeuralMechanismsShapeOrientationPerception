@@ -11,24 +11,13 @@ from mytools.ratios import geomean
 
 # Paths #
 og_dir = os.getcwd()
-paths = {
-    'Contrast Detection': {
-        'raw_dir': os.path.join(og_dir, '..', 'Contrast Detection', 'ThesisAnalysis', 'all_data'),
-    },
-    'Orientation Discrimination': {
-        'raw_dir':  os.path.join(og_dir, '..', 'Orientation Discrimination', 'Spatial Frequency', 'ThesisAnalysis',
-                                 'all_data'),
-    },
-}
 
 # Analysis settings #
-participants = ['rjl', 'tl', 'pvm', 'kw', 'yb', 're', 'lj', 'mw']
+participants = [f"P{i + 1}" for i in range(8)]
 sf = [2, 8, 16]
-_geomean_thresh = True  # threshold from reversals using geometric mean
 
 # Analyse each experiment #
-for i_exp in paths:
-    all_raw_dir = paths[i_exp]['raw_dir']
+for i_exp in ['Contrast Detection', 'Orientation Discrimination']:
     ori_labels = ['horizontal', 'vertical', 'minus45', 'plus45', 'cardinal', 'oblique']
     # Paths for analysis of i_exp
     exp_dir = os.path.join(og_dir, i_exp)
