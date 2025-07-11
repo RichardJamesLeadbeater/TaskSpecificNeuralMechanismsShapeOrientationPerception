@@ -3,6 +3,9 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/Modelling/data" />
+      <excludeFolder url="file://$MODULE_DIR$/Modelling/data/DisDet_N180_30rmax_25_07_09_1539" />
+      <excludeFolder url="file://$MODULE_DIR$/Modelling/graphs" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.10 (TaskSpecificNeuralMechanismsShapeOrientationPerception)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

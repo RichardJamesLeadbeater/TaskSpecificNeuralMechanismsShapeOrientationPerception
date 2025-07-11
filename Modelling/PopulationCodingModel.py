@@ -26,30 +26,11 @@ def set_params(cond_dicty, cardinal_idx, oblique_idx):
             continue
         c_dicty[i_param] = cond_dicty[i_param][cardinal_idx]
         o_dicty[i_param] = cond_dicty[i_param][oblique_idx]
+
     return Params(c_dicty), Params(o_dicty)
 
 
 """Population Coding Model that performs an odrientation discrimination two-alternative forced-choice task"""
-
-# notes:
-#       - METHOD OF CONSTANT STIMULI
-#         > loop through each 180
-#         > tuned response for standard and comparison for each orientation * nReps * nRuns
-#         > proportion correct (always CW in model) for each run (blocks of nReps)
-#         > use PCN mod_orispace fitting routine to pull threshold across all runs
-#       - HYPERBOLIC RATIO PARAMS
-#         > Albrecht & Hamilton (1982) n=3.4 c50=24  or  Geisler & Albrecht (1997) n=2 c50=32
-
-# todo:
-#       1. Implement correlated noise across neurons
-#           see: Averbeck et al. (XXX) and Romo et al., (2003)
-#       2. Generate neuronal response for broadband orientation content
-#           PLAN:
-#               bband_stim = generate_gaussian(x=feature_space, mu=std_ori, s=FWHM/2.3548)
-#               probabilities sum to 1:  bband_stim = bband_stim * (1 / np.sum(bband_stim))
-#               [tuned_responses.append(gen_response(f_ori)) for f_ori in broadband_stim]
-#               tuned_resp = np.sum(tuned_responses)
-#               check for values surpassing 1 when rmax=1 (probabilities sum to 1)
 
 if __name__ == '__main__':
 

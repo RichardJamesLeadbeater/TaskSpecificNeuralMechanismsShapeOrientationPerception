@@ -34,7 +34,7 @@ def plot_single_tuning(popcode, pref_ori=0, save_dir="", dpi=200,
     noisy_tunings = og_tunings + noise
 
     # Extract single tuning curve with preferred ori closest to target ori
-    ori_idx = np.argmin(abs(popcode.all_prefs - pref_ori))
+    ori_idx = np.argmin(abs(popcode.prefs - pref_ori))
     tuning = og_tunings[ori_idx, :]
     noisy_tuning = noisy_tunings[ori_idx, :]
 

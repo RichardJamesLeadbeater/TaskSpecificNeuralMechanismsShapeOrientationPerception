@@ -26,57 +26,27 @@ def prefs_sampling_error(prefs_fun, scale, desired_n, **kwargs):
     return error
 
 
-def gen_population_code(cardinal_params, oblique_params, orispace, pref_sampling, **kwargs):
-    # Set parameters for population code and init
-    if pref_sampling == 'indiv':
-        # Set parameters for each individual ori_population
-        [_params.set_n_prefs() for _params in [cardinal_params, oblique_params]]
-        ori_pops = {}
-        for label, val in zip(['H', '45', 'V', '135'], [0, 45, 90, 135]):
-            if any(i == label for i in ['H', 'V']):
-                i_params = cardinal_params.__dict__.copy()  # copy required to remove dependency from class
-            else:
-                i_params = oblique_params.__dict__.copy()
-            # custom vals for each population
-            i_params['name'] = label
-            i_params['std_ori'] = val
-            i_params['boundaries'] = get_boundaries(val, i_params['pref_range'], orispace.max_tile)
-            ori_pops[label] = NeuralPopulation(params=i_params,
-                                               baseline_params=oblique_params.__dict__.copy(),  # for distribs
-                                               orispace=orispace, name=label, _rate_or_n=kwargs.get('rate_or_n', 'n'),
-                                               debug=kwargs.get('debug', False))
-        population_code = PopulationCode(orispace=orispace,
-                                         neural_populations=[ori_pops[key] for key in ori_pops],
-                                         pooling='summation', debug=kwargs.get('debug', False),
-                                         pref_sampling='indiv')
-        # adjust boundaries based off average sampling rate of each neighbouring population
-        population_code.adjust_boundaries()
-        # generate tunings & prefs for each pop
-        population_code.gen_tunings(stack=True, window=True)  # stack & calc rollingwindow of prefs
-        # collate params from each NeuralPop
-        population_code.get_params()
-    elif pref_sampling == 'whole':
-        # Params defined for the whole populations (default)
-        global_params = {'n_prefs': (cardinal_params.n_prefs + oblique_params.n_prefs) * 2,
-                         'propn_cardinal': cardinal_params.n_prefs / (cardinal_params.n_prefs + oblique_params.n_prefs),
-                         'noise_type': 'poisson',
-                         'pref_distrib': 'cos',  # 'flat' or 'cos' (flat works better for low n and high propn_c)
-                         'param_distrib': 'cos',
-                         'tuning_dist': 'von_mises',
-                         'pooling_q': cardinal_params.pooling_q,
-                         }
-        if kwargs.get('g_params') is not None:  # update default global_params
-            for _key in kwargs['g_params']:
-                global_params[_key] = kwargs['g_params'][_key]
+def gen_population_code(cardinal_params, oblique_params, orispace, **kwargs):
+    # Params defined for the whole populations (default)
+    global_params = {'n_prefs': (cardinal_params.n_prefs + oblique_params.n_prefs) * 2,
+                     'propn_cardinal': cardinal_params.n_prefs / (cardinal_params.n_prefs + oblique_params.n_prefs),
+                     'noise_type': 'poisson',
+                     'pref_distrib': 'cos',  # 'flat' or 'cos' (flat works better for low n and high propn_c)
+                     'param_distrib': 'cos',
+                     'tuning_dist': 'von_mises',
+                     'pooling_q': cardinal_params.pooling_q,
+                     }
+    if kwargs.get('g_params') is not None:  # update default global_params
+        for _key in kwargs['g_params']:
+            global_params[_key] = kwargs['g_params'][_key]
 
-        anisotropy_info = {'param_labels': ['n_prefs', 'fwhm', 'pref_distrib', 'param_distrib', 'rmax', 'spont',
-                                            'noise_scale', 'crf_exponent', 'crf_c50'],
-                           'cardinal_params': cardinal_params.__dict__, 'oblique_params': oblique_params.__dict__}
-        population_code = PopulationCode(orispace=orispace, anisotropy=anisotropy_info, global_params=global_params,
-                                         debug=kwargs.get('debug', False), pref_sampling='whole')
-        population_code.init_population_code()
-    else:
-        population_code = None
+    anisotropy_info = {'param_labels': ['n_prefs', 'fwhm', 'pref_distrib', 'param_distrib', 'rmax', 'spont',
+                                        'noise_scale', 'crf_exponent', 'crf_c50'],
+                       'cardinal_params': cardinal_params.__dict__, 'oblique_params': oblique_params.__dict__}
+    population_code = PopulationCode(orispace=orispace, anisotropy=anisotropy_info, global_params=global_params,
+                                     debug=kwargs.get('debug', False), pref_sampling='whole')
+    population_code.init_population_code()
+
     return population_code
 
 
@@ -207,7 +177,8 @@ class Params:
             self.run_sampling_rate = run_sampling_rate  # deg per nr
             # Template PopCod
             self.template_popcode = template_popcode
-        # Calculate sigma from FWHM
+
+        # Calculate sigma and from FWHM
         if self.fwhm is not None:
             if self.sigma is None:
                 self.sigma = self.fwhm / (2 * np.sqrt(2 * np.log(2)))  # s = fwhm / 2.3548
@@ -578,10 +549,7 @@ class NeuralPopulation:
 class PopulationCode:
     def __init__(self, orispace, anisotropy=None, neural_populations=None, name=None, debug=True, **kwargs):
         self.pref_sampling = kwargs.get('pref_sampling')  # whether old version used (individual neural populations)
-        self.trial_resp_tuned = None
-        self.trial_resp = None
-        self.trial_param_distribs = None
-        self.params_co = None
+        self.resp_tuned = None
         self.param_distribs = None
         self.params = None  # callable with .get_params()
         self.debug = debug  # if True then error checks will occur
@@ -595,20 +563,16 @@ class PopulationCode:
             neural_populations = []
         self.neural_populations = neural_populations
         # the following will be appended in methods of class
-        self.all_tunings = []
-        self.all_prefs = []
-        self.all_prefs_idx = []
+        self.tunings = []
+        self.prefs = []
+        self.prefs_idx = []
         self.all_neurons = None
         # the following will be calculated in methods of class
         self.all_prefs_windows = None
         self.all_prefs_windows_idx = None
-        self.trial_stim_ori = None
-        self.trial_stim_ori_idx = None
-        self.trial_stim_con = None
-        self.trial_prefs = None
-        self.trial_prefs_idx = None
-        self.trial_tunings = None
-        self.trial_tunings_idx = None
+        self.stim_ori = None
+        self.stim_ori_idx = None
+        self.stim_con = None
         self.resp_tuned = None
         self.resp_contrast = None
         self.all_noise = None
@@ -674,74 +638,6 @@ class PopulationCode:
         for idx, i_bounds in enumerate(boundaries):  # loop through each ori bounds
             i_adjusted_bounds = i_bounds + ((adjuster_values[idx] * [1, -1]) / 2)
             self.neural_populations[idx].params.boundaries = i_adjusted_bounds
-
-    def stack_populations(self, sort_by_prefs=True):
-        all_prefs = []
-        all_prefs_idx = []
-        all_tunings = []
-        # all_params = init_cols(self.neural_populations[0].param_distribs.keys())  # for old model version
-        for idx, i_pop in enumerate(self.neural_populations):
-            all_prefs = np.hstack([all_prefs, i_pop.prefs])
-            all_prefs_idx = np.hstack([all_prefs_idx, i_pop.prefs_idx])
-            # for i_param in i_pop.param_distribs:
-            #     all_params[i_param] = np.hstack([all_params[i_param], i_pop.param_distribs[i_param]])
-            all_tunings.append(i_pop.tunings)
-        # all_tunings = np.vstack([i for i in all_tunings])  # concat all appended tunings
-        ### edits
-        all_prefs = [_i for _i in all_prefs if _i is not None]
-        all_prefs_idx = [_i for _i in all_prefs_idx if _i is not None]
-        all_tunings = np.vstack([_i for _i in all_tunings if _i is not None])  # concat all appended tunings### edit
-        ###
-        # sort prefs_idx and tunings by indices of prefs in ascending order
-        (sorted_all_prefs, sorted_all_prefs_idx, sorted_all_tunings) = sort_by_standard(all_prefs, all_prefs_idx, all_tunings)
-        # for i_param in all_params:
-        #     (_, all_params[i_param]) = sort_by_standard(all_prefs, all_params[i_param])
-        # assign
-        self.all_prefs = sorted_all_prefs
-        self.all_prefs_idx = sorted_all_prefs_idx
-        self.all_tunings = sorted_all_tunings
-        # # PLOT tunings #
-        # fig, ax = plt.subplots(figsize=(4, 2), dpi=300)
-        # for idx, i_pop in enumerate(self.neural_populations):
-        #     if any(n == i_pop.name for n in ['45', '135']):
-        #         c = [0, .05, .3]  # obliques
-        #         noize = 0.4
-        #     else:
-        #         c = [.8, .2, 0]  # cardinals
-        #         noize = 0.1
-        #     noise_for_tunings = poissonlike_noise(i_pop.tunings, noize)
-        #     noisy_tuns = i_pop.tunings + noise_for_tunings
-        #     noisy_tuns[noisy_tuns <= 0] = 0  # remove negative firing rates
-        #     # limit firing rates to rmax
-        #     rmax_distrib = (np.ones(noisy_tuns.shape).T * 60).T  # match shape to allow indexing
-        #     noisy_tuns[noisy_tuns > rmax_distrib] = rmax_distrib[rmax_distrib < noisy_tuns]  # set max to each nrns rmax
-        #     # plt.plot(self.orispace.tiling, noisy_tuns.T, c=c)  # plots noisy tuning curves
-        #     plt.plot(self.orispace.tiling, i_pop.tunings.T, c=c)  # plots tuned response
-        # ax.set_xlabel('Orientation', fontweight='bold', fontsize=12)
-        # ax.set_ylabel('Firing Rate\n(spikes / sec)', fontweight='bold', fontsize=12)
-        # ax.set_xlim(-90, 90)
-        # ax.set_xticks([-90, -45, 0, 45, 90])
-        # ax.set_xticklabels([f"{t}$^\circ$" for t in ax.get_xticks()])
-        # # ax.get_yaxis().set_visible(False)  # remove y-axis labels
-        # fig.tight_layout()
-        # plt.close()
-
-    def rolling_window(self, vector=None, window=None):
-        # create rolling prefs window (where each col = pref) across any range of space
-        # chosen prefs window centres on stim_ori to ensure circular tuning
-        if vector is None:
-            vector = self.all_prefs
-        if window is None:
-            # >= 0 to < 180 consists of all possible orientations in standard size feature space
-            # Using 180 causes ML and PV estimates (esp low contrast) to be biased toward the centre
-            # window = np.where(self.all_prefs < self.all_prefs[0] + 180)[0]  # len of window all that matters
-            window = np.arange(0, 360)
-        m = len(vector) - len(window)
-        all_prefs_windows_idx = hankel(np.arange(0, m + 1), np.arange(m, len(vector)))
-        all_prefs_windows = vector[all_prefs_windows_idx]
-        self.all_prefs_windows_idx = all_prefs_windows_idx
-        self.all_prefs_windows = all_prefs_windows  # cols = prefs
-        return self.all_prefs_windows, self.all_prefs_windows_idx
 
     def gen_anisotropic_distribution(self, o_lim=None, c_lim=None):
         # NEW MODEL - all_prefs from a single distribution #
@@ -870,8 +766,8 @@ class PopulationCode:
 
         # Assign to model
         (prefs, prefs_idx) = find_nearest(tiling, prefs_info['prefs'])
-        self.all_prefs = prefs
-        self.all_prefs_idx = prefs_idx
+        self.prefs = prefs
+        self.prefs_idx = prefs_idx
         return prefs
 
     def test_generate_params(self):
@@ -890,7 +786,7 @@ class PopulationCode:
             i_param_distrib = normalise(anisotropy['param_distrib'],
                                         val_start=oblique_val, val_end=cardinal_val  # from oblique to cardinal
                                         )
-            i_param_distrib = i_param_distrib[self.all_prefs_idx]  # Index for each ori_pref
+            i_param_distrib = i_param_distrib[self.prefs_idx]  # Index for each ori_pref
             param_distribs[i_param] = i_param_distrib
         self.param_distribs = param_distribs
         return param_distribs
@@ -905,13 +801,13 @@ class PopulationCode:
         if g_params['tuning_dist'] == 'gaussian':
             sigma = fwhm / 2.3548
             sigma = arr([sigma]).transpose()  # 1 val per ori_pref
-            tunings = generate_gaussian(tiling, self.all_prefs, sigma)  # gaussian tuning for each pref
+            tunings = generate_gaussian(tiling, self.prefs, sigma)  # gaussian tuning for each pref
         # Von Mises tuning
         elif g_params['tuning_dist'] == 'von_mises':
             rad_fwhm = np.radians(fwhm)  # must be in radians
             kappa = np.log(0.5) / (np.cos(rad_fwhm) - 1)  # Swindale (1998)
             kappa = kappa[:, nax]  # 1 val per ori_pref
-            tunings = generate_vonmises(tiling, self.all_prefs, kappa, input_format='deg')
+            tunings = generate_vonmises(tiling, self.prefs, kappa, input_format='deg')
         else:
             return None
         # Normalise so each tuning curve (row) has min=0 and max=1
@@ -922,7 +818,6 @@ class PopulationCode:
         # tunings = tunings / my_asarray([max_vals]).transpose()  # normalise to 1
         # Set maximum firing rate to rmax
         tunings = (tunings.T * param_distribs['rmax']).T  # normalise to rmax
-        self.all_tunings = tunings
         if self.debug is True:
             plt.plot(tiling, tunings[::5].T)
             plt.yticks(np.linspace(tiling.min(), tiling.max(), 16))
@@ -945,12 +840,11 @@ class PopulationCode:
 
     def contrast_response(self, pop_resp, stim_contrast=100):
         # Scales population response according to contrast response function (CRF) - Naka-Rushton
-        n = self.trial_param_distribs['crf_exponent']
-        c50 = self.trial_param_distribs['crf_c50']
+        n = self.param_distribs['crf_exponent']
+        c50 = self.param_distribs['crf_c50']
         crf_resp = pop_resp.T * (stim_contrast ** n / (stim_contrast ** n + c50 ** n))
         # Spontaneous firing proportional to rmax (independent from contrast scaling)
-        # r0 = self.trial_param_distribs['spont'] * self.trial_param_distribs['rmax']
-        r0 = self.trial_param_distribs['spont']  # set spont firing rate independently from rmax
+        r0 = self.param_distribs['spont']  # set spont firing rate independently from rmax
         crf_resp = crf_resp + r0
         crf_resp = np.transpose(crf_resp)
         return crf_resp
@@ -958,7 +852,7 @@ class PopulationCode:
     def noisy_response(self, pop_resp):
         # Noise added onto tuned response
         if self.global_params['noise_type'] == 'poisson':
-            noise = poissonlike_noise(pop_resp, self.trial_param_distribs['noise_scale'])
+            noise = poissonlike_noise(pop_resp, self.param_distribs['noise_scale'])
         else:
             noise = np.random.normal(size=len(pop_resp))
         noisy_resp = pop_resp + noise
@@ -966,177 +860,26 @@ class PopulationCode:
         return noisy_resp
 
     def gen_response(self, stim_ori_idx, stim_contrast, n_reps=1):
-        # NEW MODEL - all_prefs from a single distribution #
-        # window_tunings = self.all_tunings[self.trial_tunings_idx, :]  # Tunings centred on a given stim_ori
-        resp_tuned = self.trial_tunings[:, stim_ori_idx]  # Tuned response to stim_ori
+        resp_tuned = self.tunings[:, stim_ori_idx]  # Tuned response to stim_ori
         resp_tuned = np.transpose(resp_tuned * np.ones([n_reps, 1]))  # Tuned response across trials / repeats
         resp_tuned = self.contrast_response(resp_tuned, stim_contrast)
         resp_noisy = self.noisy_response(resp_tuned)
-        self.trial_resp_tuned = resp_tuned
-        self.trial_resp = resp_noisy
+        self.resp_tuned = resp_tuned
+        self.resp = resp_noisy
         self.resp_noisy = resp_noisy
         return resp_noisy
 
-    def gen_population_response(self, stim_ori_idx, stim_contrast, trial_tunings_idx=None, n_reps=1):
-        # modify tunings according to contrast and spont then gen noisy resp
-        if trial_tunings_idx is None:
-            trial_tunings_idx = self.trial_tunings_idx
-        all_resp_tuned = []
-        all_resp_noisy = []
-        all_noise = []
-        all_pop_prefs = []
-        for i_pop in self.neural_populations:
-            all_pop_prefs = np.hstack([all_pop_prefs, i_pop.prefs])  # append all_prefs
-            # resp_tuned = i_pop.get_attrib('tunings')  # tuned_resp of one population
-            resp_tuned = i_pop.tunings
-            if i_pop.tunings is None:  ### edits
-                continue
-            resp_tuned = resp_tuned[:, stim_ori_idx]  # stim response of this population
-            resp_tuned = np.transpose(resp_tuned * np.ones([n_reps, 1]))  # repeat for n_level_reps (noise added after)
-            # scale for contrast before noise to prevent interaction (stim contrast independent of internal noise)
-            resp_noisy = i_pop.contrast_response(resp_tuned, stim_contrast)
-            # add spont firing before poisson noise to enable fluctuations in internal noise
-            resp_noisy = i_pop.spontaneous_firing(resp_noisy)  # independent of contrast scaling and other noise
-            resp_noisy, noise = i_pop.noisy_response(resp_noisy)  # noisy_response across n_level_reps
-            all_noise.append(noise)
-            all_resp_tuned.append(resp_tuned)
-            all_resp_noisy.append(resp_noisy)
-        all_noise = np.vstack([i for i in all_noise])  # get array of noise (for entire PopCode)
-        all_resp_tuned = np.vstack([i for i in all_resp_tuned])  # stack resp for each neural pop
-        all_resp_noisy = np.vstack([i for i in all_resp_noisy])  # stack resp for each neural pop
-        (_, all_resp_tuned) = sort_by_standard(all_pop_prefs, all_resp_tuned)  # both in asc. prefs order
-        (_, all_resp_noisy) = sort_by_standard(all_pop_prefs, all_resp_noisy)  # both in asc. prefs order
-        self.all_noise = all_noise  # prefs window has not been applied
-        # all_tunings = self.get_attrib('all_tunings')
-        all_tunings = self.all_tunings
-        self.trial_tunings = all_tunings[trial_tunings_idx, :]
-        # # # # # PLOT 180 deg section of tunings #
-        # plt.figure(figsize=(4, 2), dpi=300)
-        # plt.plot(self.orispace.tiling, self.trial_tunings.T)
-        self.resp_tuned = all_resp_tuned[trial_tunings_idx, :]  # apply prefs window
-        self.resp_noisy = all_resp_noisy[trial_tunings_idx, :]
-        # # # # # PLOT 180 deg section of responses #
-        # fig, ax = plt.subplots(figsize=(4, 2), dpi=300)
-        # for idx, i_pop in enumerate(self.neural_populations):
-        #     if any(n == i_pop.name for n in ['45', '135']):
-        #         c = [0, .05, .3]  # obliques
-        #     else:
-        #         c = [.8, .2, 0]  # cardinals
-        #     plt.plot(self.orispace.tiling, i_pop.population_response.T, c=c)
-        # ax.set_xlabel('Orientation', fontweight='bold', fontsize=12)
-        # ax.set_ylabel('Firing Rate\n(spikes / sec)', fontweight='bold', fontsize=12)
-        # ax.set_xlim(-90, 90)
-        # ax.set_xticks([-90, -45, 0, 45, 90])
-        # ax.set_xticklabels([f"{t}$^\circ$" for t in ax.get_xticks()])
-        # # ax.get_yaxis().set_visible(False)  # remove y-axis labels
-        # fig.tight_layout()
-        # plt.close()
-        # plt.figure(figsize=(4, 2), dpi=300)
-        # plt.plot(self.orispace.tiling, self.resp_noisy)
-        # #
-        return self.resp_noisy, self.resp_tuned, self.all_noise
-
-    def shift_prefs(self, stim_ori):
-        # Only used with wrapped Gaussians but may be invalid anyway - consider deleting
-        all_windows = self.all_prefs_windows
-        all_prefs = arr(self.all_prefs)
-        # all_prefs = my_asarray(self.all_prefs)
-        # get central value of every possible prefs window
-        centre_vals = np.mean([all_windows.min(1), all_windows.max(1)], 0)
-        # get and use row_idx (window) where centre is closest to stim_ori
-        window_idx = abs(centre_vals - stim_ori).argmin()
-        window_vals = all_windows[window_idx, :]
-        # get range of idxs so we can index tunings array
-        min_idx = abs(all_prefs - window_vals.min()).argmin()  # start of window
-        max_idx = abs(all_prefs - window_vals.max()).argmin()  # end of window
-        window_idxs = np.arange(min_idx, max_idx + 1)  # all idxs within window
-        if len(window_vals) != len(window_idxs):
-            print('unequal len of trial_prefs and trial_prefs_idx, consider increasing resolution of space')
-        # Assign trial model parameters (within window)
-        self.trial_tunings_idx = window_idxs  # Tunings idxs for stim_ori
-        self.trial_tunings = self.all_tunings[window_idxs, :]  # Tuning curves within window
-        if self.pref_sampling == 'whole':
-            trial_param_distribs = {}  # Parameter distributions for this trial
-            for i_param in self.param_distribs:
-                trial_param_distribs[i_param] = self.param_distribs[i_param][window_idxs]  # Params within window
-            self.trial_param_distribs = trial_param_distribs
-        # Assign preferences and idcs
-        self.trial_prefs, self.trial_prefs_idx = find_nearest(self.orispace.tiling, window_vals)
-        return self.trial_tunings_idx
-
-    def gen_stim_response(self, stim_ori, stim_con=100, trial_decoder=None, n_reps=1):
+    def gen_stim_response(self, stim_ori, stim_con=100, n_reps=1):
         # # # Generate a population response for a given orientation value # # #
-        g_params = self.global_params
         tiling = self.orispace.tiling
         _, stim_ori_idx = find_nearest(tiling, stim_ori)  # idx of stim_ori in orientation space
         # update attributes
-        self.trial_stim_ori = stim_ori
-        self.trial_stim_ori_idx = stim_ori_idx
-        self.trial_stim_con = stim_con
-        # Save used window of prefs and tunings for later decoding
-        if g_params['tuning_dist'] != 'von_mises':  # No need for moving prefs window
-            self.shift_prefs(stim_ori)  # Moving prefs window
-        else:
-            self.trial_tunings = self.all_tunings
-            self.trial_param_distribs = self.param_distribs
-            self.trial_prefs = self.all_prefs
-        # resp dependent on contrast, cut within prefs window, for n repetitions
-        if self.pref_sampling == 'indiv':
-            resp_noisy, resp_tuned, noise = self.gen_population_response(stim_ori_idx, stim_con, n_reps=n_reps)
-        elif self.pref_sampling == 'whole':  # response for whole population at once
-            resp_noisy = self.gen_response(stim_ori_idx, stim_con, n_reps=n_reps)
-        if self.debug is True:
-            # Checks prefs window has max tuned_resp in its centre
-            centre = debugger.max_resp_in_centre_of_window(self, _print=self.debug)
-            if centre is False:
-                z = 0
-            self.decode_response(trial_decoder, stim_ori, n_reps=n_reps, gen_resp=False)
-        return resp_noisy
+        self.stim_ori = stim_ori
+        self.stim_ori_idx = stim_ori_idx
+        self.stim_con = stim_con
+        resp_noisy = self.gen_response(stim_ori_idx, stim_con, n_reps=n_reps)
 
-    def pooled_population_response(self, stim_ori, stim_con, n_reps):
-        # fun: return summed population activity for each repetition
-        resp_noisy = self.gen_stim_response(stim_ori=stim_ori, stim_con=stim_con, trial_decoder=None, n_reps=n_reps)
-        pooled_resp = None
-        if self.pooling['method'] == 'summation':  # magnitude = summed activity
-            pooled_resp = np.sum(resp_noisy, 0)
-        elif self.pooling['method'] == 'vector_magnitude':  # weighted magnitude of response
-            pool_exponent = self.pooling['exponent']
-            weighted_resp = []
-            for i_nrn in range(len(resp_noisy)):
-                # loop through each nrn_resp and ** crf_exponent
-                weighted_resp.append(resp_noisy[i_nrn, :] ** pool_exponent)
-            weighted_resp = np.vstack([i_nrn_resp for i_nrn_resp in weighted_resp])
-            pooled_resp = np.sum(weighted_resp, 0) ** (1 / pool_exponent)  # sum and return to og units
-            if self.debug:
-                test_summation = np.sum(resp_noisy, 0)
-                debugger.weighted_resp_plots(resp_noisy, weighted_resp)
-        elif self.pooling['method'] == 'distance':
-            # scale response pooling based on distance from centre of prefs distribution
-            orispace = self.orispace.tiling
-            min_tile = np.min(self.trial_prefs)
-            max_tile = np.max(self.trial_prefs)
-            tiling_sample = orispace[(orispace >= min_tile) & (orispace <= max_tile)]
-            # weights = generate_cosine(x=tiling_sample)
-            pool_sigma = self.get_pooling_params(ori_std=stim_ori, label='extent')
-            weights = generate_gaussian(x=tiling_sample, mu=np.mean([min_tile, max_tile]), sigma=pool_sigma)  # s=10 is ~45
-            # get idxs of prefs within tiling_sample
-            _, sample_prefs_idx = find_nearest(tiling_sample, self.trial_prefs)
-            # use idxs of prefs within tiling_sample to pull appropriate weights
-            weights = weights[sample_prefs_idx] / np.max(weights[sample_prefs_idx])
-            if self.debug is True:
-                plt.subplots()
-                plt.plot(self.trial_prefs, weights)
-                plt.close()
-            # apply weights to population rdistance_weighted response
-            # pooled_resp = my_asarray([weights]).T * resp_noisy
-            pooled_resp = arr([weights]).T * resp_noisy
-            if self.debug is True:
-                plt.subplots()
-                plt.plot(self.trial_prefs[:], pooled_resp[:, ::100])
-                plt.title(f"{stim_con} % contrast")
-                plt.close()
-            pooled_resp = np.sum(pooled_resp, 0)
-        return pooled_resp
+        return resp_noisy
 
     def detection(self, response_decoder='summation', stim_ori=None, stim_con=None, n_reps=None):
         # return pooled population response for detection task #
@@ -1148,12 +891,6 @@ class PopulationCode:
             decoded_val = np.sum(self.resp_noisy, 0)  # sum across neurons for each trial
         elif response_decoder == 'mag':  # weighted by response magnitude
             decoded_val = self.vector_mag()
-        elif response_decoder == 'distance':  # weighted by distance from stim
-            decoded_val = self.distance_sum()
-        elif response_decoder == 'distance_v_mag':
-            decoded_val = self.distance_vectormag()
-        elif response_decoder == 'PV':
-            decoded_val = self.popvector(_detection=True)  # estimates actual contrast [?]
         else:
             print('No detection decoder chosen')
             decoded_val = None
@@ -1164,50 +901,10 @@ class PopulationCode:
         if pop_resp is None:
             pop_resp = self.resp_noisy
         if q is None:
-            # q = self.get_pooling_params(ori_std=self.trial_stim_ori, label='exponent')
-            # q = 6  # q was 6 in thesis which is fine (see self.debug below)
-            q = self.global_params['pooling_q']  # 1st lot of paper simulations (should I add this to conditions... yes...)
+            q = self.global_params['pooling_q']
         vector_mag_val = np.sum(pop_resp ** q, 0) ** (1 / q)  # sum and return to og units
-        if self.debug:
-            if self.trial_stim_con > 10:  # test when contrast is higher
-                q1 = 1  # no weighting
-                q2 = 6
-                # This shows how the weighting occurs across the population (averaged across trials)
-                fig, ax = plt.subplots()
-                a = np.sum(pop_resp ** q1, 1)
-                b = np.sum(pop_resp ** q2, 1)
-                ax.plot(normalise(a, 0, 1), c='k')
-                ax.plot(normalise(b, 0, 1), linestyle=":")
-                plt.show()
-                plt.close()
+
         return vector_mag_val
-
-    def distance_sum(self, pop_resp=None, pool_sigma=None):
-        # scale response pooling based on distance from stim_ori
-        if pop_resp is None:
-            pop_resp = self.resp_noisy
-        if pool_sigma is None:
-            # pool_sigma = self.get_pooling_params(ori_std=self.trial_stim_ori, label='exponent')
-            pool_sigma = 10
-        weights = generate_gaussian(x=self.trial_prefs, mu=self.trial_stim_ori, sigma=pool_sigma)
-        weights = weights / np.max(weights)  # 0 to 1
-        # pooled_val = my_asarray([weights]).T * pop_resp  # apply weights to population distance_weighted response
-        pooled_val = arr([weights]).T * pop_resp  # apply weights to population distance_weighted response
-        distance_val = np.sum(pooled_val, 0)
-        return distance_val
-
-    def distance_vectormag(self):
-        # scale response pooling based on distance from stim_ori
-        pop_resp = self.resp_noisy
-        pool_sigma = self.get_pooling_params(ori_std=self.trial_stim_ori, label='exponent')
-        weights = generate_gaussian(x=self.trial_prefs, mu=self.trial_stim_ori, sigma=pool_sigma)
-        weights = weights / np.max(weights)  # 0 to 1
-        # w_pop_resp = my_asarray([weights]).T * pop_resp  # apply weights to population distance_weighted response
-        w_pop_resp = arr([weights]).T * pop_resp  # apply weights to population distance_weighted response
-        # VECTOR MAG POOLING
-        q = self.get_pooling_params(ori_std=self.trial_stim_ori, label='exponent')
-        distance_vmag = np.sum(w_pop_resp ** q, 0) ** (1 / q)  # sum and return to og units
-        return distance_vmag
 
     def decode_response(self, response_decoder='WTA', stim_ori=None, stim_con=None, n_reps=None, gen_resp=True,
                         save_decoded=False, load_decoded=False):
@@ -1237,9 +934,9 @@ class PopulationCode:
         return decoded_val
 
     def cramer_rao(self, stim_ori, stim_con=100, n_reps=1):
-        self.gen_stim_response(stim_ori, stim_con, trial_decoder=None, n_reps=n_reps)
+        self.gen_stim_response(stim_ori, stim_con, n_reps=n_reps)
         resp_noisy = self.resp_noisy  # each nrn noisy_resp across trials
-        resp_tuned = self.trial_tunings  # each nrn tuned_resp across orispace
+        resp_tuned = self.tunings  # each nrn tuned_resp across orispace
         # Define the parameter and likelihood function
         resp_tuned = resp_tuned + (1 ** -10)  # removes any vals=zero
         log_likelihood = resp_noisy.T @ np.log(resp_tuned)  # outputs: [trials x orispace]
@@ -1249,33 +946,33 @@ class PopulationCode:
         fisher_info = -np.gradient(score_function, axis=1)
         # Calculate Cramer-Rao bound (CRB) for given stim_ori by inverting Fisher Information Matrix
         crb = fisher_info ** -1
-        crb_idx = crb[:, self.trial_stim_ori_idx]
+        crb_idx = crb[:, self.stim_ori_idx]
         crb_ave = np.mean(crb_idx)
+
         return crb_ave
 
-    def wta(self, pop_resp=None, trial_prefs=None):
+    def wta(self, pop_resp=None, prefs=None):
         # Pref of the neurons which produced the strongest response each trial
         # pop_resp: 2D neuron(rows) x trial(cols) for resp(vals)
-        # trial_prefs: 1D prefs(vals)
+        # prefs: 1D prefs(vals)
         if pop_resp is None:
             pop_resp = self.resp_noisy
-        if trial_prefs is None:
-            trial_prefs = self.trial_prefs
-        trial_max = pop_resp.max(0)  # max response for each trial
-        ismax = (trial_max == pop_resp).astype('int')  # bool 01 matrix of max for each trial
+        if prefs is None:
+            prefs = self.prefs
+        ismax = (pop_resp.max(0) == pop_resp).astype('int')  # bool 01 matrix of max for each trial
         ismax = ismax + np.random.uniform(-0.1, 0.1, size=ismax.shape)  # add random noise to distinguish shared vals
-        trial_pref_idx = ismax.argmax(0)
-        wta_est = trial_prefs[trial_pref_idx]  # get idx of pref with max response
+        wta_est = prefs[ismax.argmax(0)]  # get idx of pref with max response
+
         return wta_est
 
     def popvector(self, weights=None, pop_prefs=None, _detection=False):
         # pop_resp: 2D neuron(rows) x trial(cols) for resp(vals)
-        # trial_prefs: 1D prefs(vals)
+        # prefs: 1D prefs(vals)
         if weights is None:
             weights = self.resp_noisy
             # weights could also be set as self.resp_tuned
         if pop_prefs is None:
-            pop_prefs = self.trial_prefs
+            pop_prefs = self.prefs
         pop_prefs = np.radians(pop_prefs)
         # Account for 180 deg of circular space
         if self.orispace.range == 180:
@@ -1299,7 +996,7 @@ class PopulationCode:
         if pop_resp is None:
             pop_resp = self.resp_noisy
         if pop_tunings is None:
-            pop_tunings = self.trial_tunings
+            pop_tunings = self.tunings
         if tiling is None:
             tiling = self.orispace.tiling
             # tiling = self.orispace.get_attrib('tiling')
