@@ -100,10 +100,6 @@ def mocs_task(model, decoder, ori_std, contrast, task='', **kwargs):
     if all(task != i for i in ['ori_id', 'ori_dis', 'con_det']):
         print("# # # TASK NOT SET # # #\nChoose from:\t'ori_id'\t,\t'ori_dis'\t,\t'con_det'")
 
-    # load in externally saved file
-    if model.neural_populations is None:
-        model.neural_populations = model.get_attrib('neural_populations')
-
     levels_ = kwargs.get('levels')
     n_level_reps_ = kwargs.get('n_level_reps')
 
@@ -205,12 +201,6 @@ def mocs_task(model, decoder, ori_std, contrast, task='', **kwargs):
                        'slope': nan, 's_std': nan}
         print(f"no fit for Decoder={decoder} Ori={ori_std} Contrast={contrast}")
         return pd.DataFrame(summarydata, index=[''])
-
-
-def false_function(model, decoder, ori_std, contrast, task='', **kwargs):
-    print("I'm in")
-    model.get_attrib('neural_populations')
-    return 1
 
 
 def staircase_task(model, decoder, ori_std, contrast, task, **kwargs):
