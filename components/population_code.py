@@ -50,14 +50,28 @@ def gen_population_code(cardinal_params, oblique_params, orispace, **kwargs):
     return population_code
 
 class Params:
-    def __init__(self, dicty=None, fwhm=None, sigma=None, kappa=None, deg_per_pref=None, n_prefs=None,
-                 pref_distrib='flat',
-                 param_distrib='flat', pref_range=None, rmax=None, spont=None, crf_exponent=None, crf_c50=None,
-                 pooling=None, noise_scale=1, noise_type='poisson', correlated_noise=None,
-                 baseline_params=None, pooling_exponent=None, pooling_extent=None, run_n_prefs=None, run_density=None,
-                 run_sampling_rate=None, boundaries=None, std_ori=None, pooling_q=None,
-                 template_popcode=None):
-        # use dict to set attributes
+    def __init__(self, dicty=None, fwhm=None, sigma=None, kappa=None, n_prefs=None,
+                 rmax=None, spont=None, crf_exponent=None, crf_c50=None,
+                 noise_scale=1, noise_type='poisson', pref_distrib='flat', param_distrib='flat',
+                 pooling_q=None,
+                 ):
+        # Set attributes
+        if not isinstance(dicty, dict):
+            self.fwhm = fwhm
+            self.sigma = sigma
+            self.kappa = kappa
+            self.n_prefs = n_prefs
+            self.pref_distrib = pref_distrib
+            self.param_distrib = param_distrib
+            self.rmax = rmax
+            self.noise_scale = noise_scale
+            self.noise_type = noise_type
+            self.spont = spont
+            self.crf_exponent = crf_exponent
+            self.crf_c50 = crf_c50
+            self.pooling_q = pooling_q
+
+        # Use dict to set attributes
         if isinstance(dicty, dict):
             for i_key in Params().__dict__:
                 if dicty.get(i_key) is not None:
@@ -73,24 +87,6 @@ class Params:
                 h = self.fwhm / 2
                 self.kappa = np.log(0.5) / (np.cos(2 * h) - 1)  # Swindale (1998)
 
-    def set_fwhm(self, fwhm):
-        self.sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
-        self.fwhm = fwhm
-
-    def set_n_prefs(self, n_prefs=None):
-        if n_prefs is None:
-            n_prefs = self.n_prefs
-        if n_prefs != 0:
-            self.deg_per_pref = 45 / n_prefs
-        self.n_prefs = n_prefs
-
-    def set_noise_scale(self, noise_scale):
-        self.noise_scale = noise_scale
-
-    def set_rmax(self, rmax=None):
-        self.rmax = rmax
-
-
 class Tiling:
     """tiling of feature space"""
     def __init__(self, min_tile, max_tile, step_size, name=None, _save_external=False):
@@ -102,67 +98,35 @@ class Tiling:
         self.name = name
         if name is None:
             self.name = 'tiling'
-        # if _save_external is True:
-        #     self.save_attrib('tiling', _replace=True)  # saves externally and replaces w/ None
-
-    def save_attrib(self, attrib_label, path=None, _replace=True):
-        # save out attrib and replace og with None
-        save_attrib(self.__dict__[attrib_label], f"{self.name}_{attrib_label}", path)
-        if _replace is True:
-            self.__dict__[attrib_label] = None  # .get_tiling() needed
-
-    def get_attrib(self, attrib_label, path=None, _save_internal=False):
-        attrib = get_attrib(f"{self.name}_{attrib_label}", path)  # returns tiling array
-        if _save_internal is True:
-            self.__dict__[attrib_label] = attrib
-        return attrib
-
-
-class Stimuli:
-    """values of MyStimuli across feature space"""
-
-    def __init__(self, ori=None, con=None, tiling=None):
-        self.tiling = tiling
-        self.ori = ori
-        self.con = con
-        _, self.ori_idx = find_nearest(tiling, ori)
-
-    def get_stim_ori_idx(self, stim_ori=None):
-        if stim_ori is None:
-            stim_ori = self.ori
-        self.ori, self.ori_idx = find_nearest(self.tiling, stim_ori)
-        return self.ori_idx
 
 class PopulationCode:
     def __init__(self, orispace, anisotropy=None, name=None, debug=True, **kwargs):
-        self.pref_sampling = kwargs.get('pref_sampling')  # whether old version used (individual neural populations)
-        self.resp_tuned = None
+        self.debug = debug  # if True then error checks will occur
         self.param_distribs = None
         self.params = None
-        self.debug = debug  # if True then error checks will occur
         self.orispace = orispace
+        # Global parameters
         self.global_params = kwargs.get('global_params')
         if kwargs.get('global_params') is not None:
-            self.global_params['n_samples'] = int(self.global_params['n_prefs'] * (self.orispace.range / 180))  # whole range (not per 180)
+            # Total N set for 180 deg - Scale N for larger deg range - # TODO can delete
+            n_samples = int(self.global_params['n_prefs'] * (self.orispace.range / 180))
+            self.global_params['n_samples'] = n_samples
+        self.noise_type = 'poisson'
         # Anisotropic parameters
         self.anisotropy = anisotropy
         self.tunings = []
         self.prefs = []
         self.prefs_idx = []
-        self.all_neurons = None
-        # the following will be calculated in methods of class
-        self.all_prefs_windows = None
-        self.all_prefs_windows_idx = None
+        # Stimuli details
         self.stim_ori = None
         self.stim_ori_idx = None
-        self.stim_con = None
+        self.stim_contrast = None
+        # Response
         self.resp_tuned = None
         self.resp_contrast = None
-        self.all_noise = None
         self.resp_noisy = None
-        self.noise_type = 'poisson'
+        # Decoder
         self.decoded = None
-        self.name = name
 
     def gen_anisotropic_distribution(self, o_lim=None, c_lim=None):
         # NEW MODEL - all_prefs from a single distribution #
@@ -175,10 +139,6 @@ class PopulationCode:
             distrib = self.global_params[i_dist]
             if any(_i == distrib for _i in ['cos']):
                 curve = generate_cosine(tiling, n_cycles=n_cycles)
-                o_lim = 0  # proportion of cycle at which oblique cuts off (e.g., 0.5 = half-wave rectified)
-                c_lim = 1
-                curve[curve < o_lim] = o_lim  # obliques
-                curve[curve > c_lim] = c_lim  # cardinals
             elif g_params[i_dist] == 'flat':
                 curve = generate_cosine(tiling, n_cycles=n_cycles)
                 curve[curve <= 0.5] = 0  # oblique
@@ -194,7 +154,6 @@ class PopulationCode:
         self.gen_prefs()  # sampled orientation preferences
         self.gen_param_distributions()  # parameters for each neuron sampled according to orientation preference
         self.gen_tunings()  # tuning curve for each pref
-
 
     def gen_prefs_distrib(self, scale, size=100000):
         # NEW MODEL - all_prefs from a single distribution #
@@ -278,7 +237,6 @@ class PopulationCode:
         return param_distribs
 
     def gen_tunings(self):
-        g_params = self.global_params
         param_distribs = self.param_distribs
         tiling = self.orispace.tiling
         fwhm = param_distribs['fwhm']
@@ -299,6 +257,8 @@ class PopulationCode:
               )
         # Set maximum firing rate to rmax
         tunings = (tunings.T * param_distribs['rmax'])
+
+        self.tunings = tunings.T
 
         return tunings
 
@@ -323,7 +283,7 @@ class PopulationCode:
         noisy_resp[noisy_resp <= 0] = 0  # remove negative firing rates
         return noisy_resp
 
-    def gen_stim_response(self, stim_ori, stim_con=100, n_reps=1):
+    def gen_stim_response(self, stim_ori, stim_contrast=100, n_reps=1):
         # # # Generate a population response for a given orientation value # # #
         # Stimulus
         tiling = self.orispace.tiling
@@ -332,13 +292,13 @@ class PopulationCode:
         # Response
         resp_tuned = self.tunings[:, stim_ori_idx]  # Tuned response to stim_ori
         resp_tuned = np.transpose(resp_tuned * np.ones([n_reps, 1]))  # Tuned response across trials / repeats
-        resp_tuned = self.contrast_response(resp_tuned, stim_con)
+        resp_tuned = self.contrast_response(resp_tuned, stim_contrast)
         resp_noisy = self.noisy_response(resp_tuned)
 
         # Update attributes
         self.stim_ori = stim_ori
         self.stim_ori_idx = stim_ori_idx
-        self.stim_con = stim_con
+        self.stim_contrast = stim_contrast
         self.resp_tuned = resp_tuned
         self.resp_noisy = resp_noisy
 
@@ -347,7 +307,7 @@ class PopulationCode:
     def detection(self, response_decoder='summation', stim_ori=None, stim_con=None, n_reps=None):
         # return pooled population response for detection task #
         if all(i or i == 0 for i in [stim_ori, stim_con, n_reps]):
-            self.gen_stim_response(stim_ori, stim_con, None, n_reps)
+            self.gen_stim_response(stim_ori, stim_con, None)
         if response_decoder == 'peak':
             decoded_val = np.max(self.resp_noisy, 0)
         elif response_decoder == 'sum':
@@ -374,7 +334,7 @@ class PopulationCode:
         # If using stored decoded estimates
         if all(i or i == 0 for i in [stim_ori, stim_con, n_reps]):
             if gen_resp is True:
-                self.gen_stim_response(stim_ori, stim_con, response_decoder, n_reps)
+                self.gen_stim_response(stim_ori, stim_con, response_decoder)
         decoded_val = None
         if response_decoder == 'WTA':
             decoded_val = self.wta()

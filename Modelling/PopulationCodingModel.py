@@ -247,7 +247,7 @@ if __name__ == '__main__':
         #     # Load template orientation
         #     for i_target_ori in run_ori_stds:
         #         PopCode_template.decode_response(i_conds['template_decoder'], i_target_ori,
-        #                                          stim_con=i_conds['template_intensity'], n_reps=10000,
+        #                                          stim_contrast=i_conds['template_intensity'], n_reps=10000,
         #                                          save_decoded=True)  # Load template ori estimates
         #     PopCode.decoded_template = PopCode_template.saved_response  # Save template estimates in og PopCode
         # else:
@@ -361,7 +361,7 @@ if __name__ == '__main__':
                                                          save_decoded=True)  # Load template ori estimates
 
                         # PopCode_template.decode_response(i_tmp_conds['template_decoder'], i_target_ori,
-                        #                                  stim_con=i_tmp_conds['template_intensity'], n_reps=10000,
+                        #                                  stim_contrast=i_tmp_conds['template_intensity'], n_reps=10000,
                         #                                  save_decoded=True)  # Load template ori estimates
                     PopCode.decoded_template = PopCode_template.saved_response  # Save template estimates in og PopCode
 
