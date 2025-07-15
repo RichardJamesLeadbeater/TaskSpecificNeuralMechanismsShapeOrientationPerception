@@ -47,16 +47,23 @@ def generate_cosine(x, n_cycles=1):
 
 
 def generate_vonmises(x, prefs, kappa, input_format='rad'):
-    if input_format == 'deg':  # orispace in radians
+    if input_format == 'deg':
         x = np.radians(x)
         prefs = np.radians(prefs)
-    # see Swindale (1998) for clear equations and HWHM calculation
-    p1 = kappa.T * (np.cos(2 * (x[:, nax] - prefs)))
-    tunings = np.exp(p1).T
-    normalisation_constant = 2 * np.pi * special.i0(kappa)
-    tunings = tunings / normalisation_constant
-    # plt.plot(tunings[::20, :].T)
-    return tunings
+
+    x = x[:, np.newaxis]  # shape (n_points, 1)
+    prefs = prefs[np.newaxis, :]  # shape (1, n_prefs)
+    kappa = kappa[np.newaxis, :]  # shape (1, n_prefs)
+
+    # Von Mises tuning (periodic over 180° → 2x)
+    exponent = kappa * np.cos(2 * (x - prefs))
+    tunings = np.exp(exponent)
+
+    # Normalise each curve
+    norm_const = 2 * np.pi * special.i0(kappa)
+    tunings /= norm_const
+
+    return tunings.T  # shape (n_prefs, n_points)
 
 
 def normalise(x, val_start=None, val_end=None, scalar=None, _invert=False):

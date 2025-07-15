@@ -240,8 +240,7 @@ class PopulationCode:
 
         # Von Mises tuning
         rad_hwhm = np.radians(hwhm)  # must be in radians
-        kappa = np.log(0.5) / (np.cos(rad_hwhm) - 1)  # Swindale (1998)
-        kappa = kappa[:, nax]  # 1 val per ori_pref
+        kappa = np.log(0.5) / (np.cos(2 * rad_hwhm) - 1)  # Swindale (1998)
         tunings = generate_vonmises(tiling, self.prefs, kappa, input_format='deg')
 
         # Normalise so each tuning curve (row) has min=0 and max=1

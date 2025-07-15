@@ -43,7 +43,6 @@ def build_label(sf, hwhm, n=None):
     return label
 
 
-# TODO - Improve data organisation (no need for separate folders with different tasks - just index with task)
 # Load symbol dicts
 misc_sym = misc_symbols()
 m_sym = model_symbols()

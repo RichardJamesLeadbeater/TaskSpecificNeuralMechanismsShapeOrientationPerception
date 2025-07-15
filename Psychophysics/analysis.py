@@ -31,8 +31,6 @@ for i_exp in ['Contrast Detection', 'Orientation Discrimination']:
         if not os.path.exists(i_path):
             os.makedirs(i_path)
 
-    # TODO Include thresholds from staircase
-
     # Raw data
     raw_data = pd.read_csv(os.path.join(raw_dir, "raw_anonymised.csv"))
     raw_data['spatial frequency'] = raw_data['spatial frequency'].astype(str)
