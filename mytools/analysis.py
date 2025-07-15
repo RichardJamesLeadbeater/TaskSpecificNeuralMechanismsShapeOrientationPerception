@@ -55,6 +55,7 @@ def get_ratio_data(dframe, cond_list, ori_label, ratio_list=None, dv='threshold'
     mean_ratios = pd.DataFrame(mean_ratios).sort_values(by=mean_cond_list)
     return indiv_ratios, mean_ratios
 
+
 def get_oei_data(input_df, cond_list, ori_label, dv='threshold'):
     # Input mean_data / summary_data
     df = input_df.copy()
@@ -75,6 +76,7 @@ def get_oei_data(input_df, cond_list, ori_label, dv='threshold'):
     oei_df = pd.DataFrame(oei_data).sort_values(by=cond_list)
 
     return oei_df
+
 
 def gen_oei_data(input_df, cond_list, ori_label, dv_label='threshold'):
     df = input_df.copy()

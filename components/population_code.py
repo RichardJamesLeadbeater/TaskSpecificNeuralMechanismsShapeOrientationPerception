@@ -252,12 +252,8 @@ class PopulationCode:
         rows_idcs = np.arange(0, len(cols_idcs), 1)
         max_vals = tunings[rows_idcs, cols_idcs]
         tunings = tunings / arr([max_vals]).T
-        print(f"min_tunings = {np.min(tunings)}"
-              f"max_tunings = {np.max(tunings)}"
-              )
         # Set maximum firing rate to rmax
         tunings = (tunings.T * param_distribs['rmax'])
-
         self.tunings = tunings.T
 
         return tunings
@@ -307,7 +303,7 @@ class PopulationCode:
     def detection(self, response_decoder='summation', stim_ori=None, stim_con=None, n_reps=None):
         # return pooled population response for detection task #
         if all(i or i == 0 for i in [stim_ori, stim_con, n_reps]):
-            self.gen_stim_response(stim_ori, stim_con, None)
+            self.gen_stim_response(stim_ori, stim_con, n_reps)
         if response_decoder == 'peak':
             decoded_val = np.max(self.resp_noisy, 0)
         elif response_decoder == 'sum':
@@ -329,12 +325,11 @@ class PopulationCode:
 
         return vector_mag_val
 
-    def decode_response(self, response_decoder='WTA', stim_ori=None, stim_con=None, n_reps=None, gen_resp=True,
-                        save_decoded=False, load_decoded=False):
+    def decode_response(self, response_decoder='WTA', stim_ori=None, stim_con=None, n_reps=None, gen_resp=True):
         # If using stored decoded estimates
         if all(i or i == 0 for i in [stim_ori, stim_con, n_reps]):
             if gen_resp is True:
-                self.gen_stim_response(stim_ori, stim_con, response_decoder)
+                self.gen_stim_response(stim_ori, stim_con, n_reps)
         decoded_val = None
         if response_decoder == 'WTA':
             decoded_val = self.wta()
@@ -342,6 +337,8 @@ class PopulationCode:
             decoded_val = self.popvector()
         elif response_decoder == 'ML':
             decoded_val = self.maxlikelihood()
+        else:
+            print('Warning: Response decoder not recognised')
         # plt.hist(decoded_val, alpha=0.8)
         # Add tiny amount of noise to separate shared estimates
         decoded_val = decoded_val + np.random.uniform(-0.0001, 0.0001, size=len(decoded_val))

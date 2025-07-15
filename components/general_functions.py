@@ -227,6 +227,7 @@ def listallcombos(dicty, _save=False, savepath=None):
 
     if _save is True:
         pd.DataFrame(combo_list).to_csv(os.path.join(savepath, 'cond_list.csv'))
+
     return combo_list
 
 
