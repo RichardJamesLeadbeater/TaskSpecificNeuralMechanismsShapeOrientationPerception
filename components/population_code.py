@@ -4,10 +4,8 @@ from scipy.linalg import hankel
 from scipy.optimize import minimize
 import pickle
 import random
-from .general_functions import get_attrib, save_attrib, find_nearest, generate_gaussian, generate_cosine, generate_vonmises,\
-    sort_by_standard, normalise, poissonlike_noise, get_boundaries
+from .general_functions import find_nearest, generate_cosine, generate_vonmises, normalise, poissonlike_noise
 from components.run import set_random_seed
-from . import debugger
 import matplotlib.pyplot as plt
 import os
 from mytools.dframe_tools import init_cols
@@ -40,7 +38,7 @@ def gen_population_code(cardinal_params, oblique_params, orispace, **kwargs):
         for _key in kwargs['g_params']:
             global_params[_key] = kwargs['g_params'][_key]
 
-    anisotropy_info = {'param_labels': ['n_prefs', 'fwhm', 'pref_distrib', 'param_distrib', 'rmax', 'spont',
+    anisotropy_info = {'param_labels': ['n_prefs', 'hwhm', 'pref_distrib', 'param_distrib', 'rmax', 'spont',
                                         'noise_scale', 'crf_exponent', 'crf_c50'],
                        'cardinal_params': cardinal_params.__dict__, 'oblique_params': oblique_params.__dict__}
     population_code = PopulationCode(orispace=orispace, anisotropy=anisotropy_info, global_params=global_params,
@@ -50,14 +48,14 @@ def gen_population_code(cardinal_params, oblique_params, orispace, **kwargs):
     return population_code
 
 class Params:
-    def __init__(self, dicty=None, fwhm=None, sigma=None, kappa=None, n_prefs=None,
+    def __init__(self, dicty=None, hwhm=None, sigma=None, kappa=None, n_prefs=None,
                  rmax=None, spont=None, crf_exponent=None, crf_c50=None,
                  noise_scale=1, noise_type='poisson', pref_distrib='flat', param_distrib='flat',
                  pooling_q=None,
                  ):
         # Set attributes
         if not isinstance(dicty, dict):
-            self.fwhm = fwhm
+            self.hwhm = hwhm
             self.sigma = sigma
             self.kappa = kappa
             self.n_prefs = n_prefs
@@ -79,13 +77,12 @@ class Params:
                 else:
                     setattr(self, i_key, Params().__dict__[i_key])  # default value if not in dicty
 
-        # Calculate sigma and from fwhm
-        if self.fwhm is not None:
-            if self.sigma is None:
-                self.sigma = self.fwhm / (2 * np.sqrt(2 * np.log(2)))  # s = fwhm / 2.3548
+        # Calculate sigma and from hwhm
+        if self.hwhm:
+            if not self.sigma:
+                self.sigma = self.hwhm / np.sqrt(2 * np.log(2))  # s = hwhm / 2.3548
             if self.kappa is None:
-                h = self.fwhm / 2
-                self.kappa = np.log(0.5) / (np.cos(2 * h) - 1)  # Swindale (1998)
+                self.kappa = np.log(0.5) / (np.cos(2 * self.hwhm) - 1)  # Swindale (1998)
 
 class Tiling:
     """tiling of feature space"""
@@ -239,11 +236,11 @@ class PopulationCode:
     def gen_tunings(self):
         param_distribs = self.param_distribs
         tiling = self.orispace.tiling
-        fwhm = param_distribs['fwhm']
+        hwhm = param_distribs['hwhm']
 
         # Von Mises tuning
-        rad_fwhm = np.radians(fwhm)  # must be in radians
-        kappa = np.log(0.5) / (np.cos(rad_fwhm) - 1)  # Swindale (1998)
+        rad_hwhm = np.radians(hwhm)  # must be in radians
+        kappa = np.log(0.5) / (np.cos(rad_hwhm) - 1)  # Swindale (1998)
         kappa = kappa[:, nax]  # 1 val per ori_pref
         tunings = generate_vonmises(tiling, self.prefs, kappa, input_format='deg')
 

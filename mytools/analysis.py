@@ -5,6 +5,7 @@ from mytools.dict_tools import init_cols, append_dicty
 from mytools.list_tools import all_combinations
 from mytools.ratios import get_ori_ratio, geomean
 
+
 def get_mean_data(dframe, cond_list, dv):
     # Use groupby to calculate the statistics in one go
     grouped = dframe.groupby(cond_list)[dv]
@@ -93,6 +94,7 @@ def gen_oei_data(input_df, cond_list, ori_label, dv_label='threshold'):
 
     return oei_dframe
 
+
 def gen_cond_nums(input_df, ignore_list):
     df = input_df.copy()
     df.fillna(0, inplace=True)
@@ -106,22 +108,3 @@ def gen_cond_nums(input_df, ignore_list):
     df['cond_num'] = df[cond_list].apply(lambda row: combo_LUT[tuple(row)], axis=1)
 
     return df
-
-
-def combine_conds(input_df_1, input_df_2, cond_list, cond_num_label='cond_num'):
-    # adding unique column labels from df_2 to df_1, matched by cond_num
-    df_1 = input_df_1.copy()
-    df_2 = input_df_2.copy()
-    output_data = []
-    for idx_cond in df_1[cond_num_label].unique():
-        i_df_1 = index_dframe(df_1, [cond_num_label], [idx_cond])
-        i_df_2 = index_dframe(df_2, [cond_num_label], [idx_cond])  # 1 ori
-        for i_col in cond_list:
-            if len(i_df_2[i_col].unique()) != 1:
-                print(f'ERROR IN COLUMN SHARING - {i_col}')
-                continue
-            i_df_1[i_col] = i_df_2[i_col].iloc[0]
-        output_data.append(i_df_1)
-    output_dframe = pd.concat(output_data)
-
-    return output_dframe

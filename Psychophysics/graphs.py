@@ -5,9 +5,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from mytools.dframe_tools import index_dframe, change_dframe_labels
 from mytools.dict_tools import append_dicty
-from mytools.misc import assign_participant_numbers
-from mytools.my_seaborn import load_seaborn_prefs, plot_bar, plot_line, init_markers, multifig_formatter
-from mytools.string_tools import misc_symbols
+from mytools.my_seaborn import load_seaborn_prefs, plot_line, init_markers, multifig_formatter
+from mytools.symbols import misc_symbols
 
 # Init
 sym = misc_symbols()

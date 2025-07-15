@@ -101,25 +101,3 @@ def plot_psychometric(x_axis, y_axis, x_fit_axis, y_fit_axis, threshold_value=No
     fig.tight_layout()
     if _save is True or save_dir is not None:
         pylab.savefig(os.path.join(save_dir, f"{save_name}.png"), dpi=dpi)
-
-
-# def plot_psychometric(x_axis, y_axis, x_fit_axis, y_fit_axis, threshold_value, title='', close_all=True,
-#                       xlabel='', ylabel=''):
-#     threshold_idx = np.argmin(abs(x_fit_axis - threshold_value))
-#     if close_all:
-#         pylab.close('all')
-#         plt.close('all')
-#     else:
-#         pass
-#     pylab.figure()
-#     pylab.plot(x_axis, y_axis, 'o', label='data')
-#     pylab.plot(x_fit_axis, y_fit_axis, label='fit')
-#     pylab.ylim(0.5 - .01, 1.01)
-#     pylab.xlim(x_axis.min() - 0.01, x_axis.max() + 0.01)
-#     pylab.plot([threshold_value, threshold_value], [0, y_fit_axis[threshold_idx]], 'k--', alpha=0.3)
-#     pylab.plot([0, threshold_value], [y_fit_axis[threshold_idx], y_fit_axis[threshold_idx]], 'k--', alpha=0.3)
-#     pylab.xlabel(xlabel)
-#     pylab.ylabel(ylabel)
-#     pylab.title(title)
-#     pylab.legend(loc='best')
-#     # pylab.show()

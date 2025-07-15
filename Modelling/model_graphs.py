@@ -1,29 +1,22 @@
-from copy import copy, deepcopy
 import pandas as pd
 import os
 import seaborn as sns
-import matplotlib.pyplot as plt
-import numpy as np
-from numpy import asarray as arr
-from mytools.my_seaborn import load_seaborn_prefs, plot_bar, plot_line, init_markers
-from mytools.dframe_tools import init_cols, to_csv_pkl, index_dframe, \
-    change_dframe_colnames, change_dframe_labels, custom_sort
-from mytools.dict_tools import append_dicty
-from mytools.symbols import model_symbols, misc_symbols, lowercase_greek_alphabet, uppercase_greek_alphabet, \
-    italics, bold
+from mytools.my_seaborn import load_seaborn_prefs
+from mytools.dframe_tools import to_csv_pkl, index_dframe, \
+    change_dframe_colnames, change_dframe_labels
+from mytools.symbols import model_symbols, misc_symbols, lowercase_greek_alphabet, uppercase_greek_alphabet
 from mytools.os_tools import make_paths
 import ast
 import itertools as itls
 from components.model_plots import alter_dframe, task_info, plot_multicond, plot_multicond_thresholds
-from mytools.analysis import gen_oei_data, gen_cond_nums, combine_conds
+from mytools.analysis import gen_oei_data, gen_cond_nums
 
 pd.options.mode.chained_assignment = None  # default='warn'  # removes error messages
 
 
 def get_sf_labels(use_adjusted_sf, vary_n, show_n=False):
     # Define SF values
-    sf_vals = (57.6, 30.4, 22.2)
-    label_sf_vals = (28.1, 15.0, 11.0) if use_adjusted_sf is True else sf_vals
+    sf_vals = (28.1, 15.2, 22.2)
 
     # Define N values
     n_vals = (540, 540, 540) if vary_n is False else (1080, 540, 268)
@@ -35,15 +28,15 @@ def get_sf_labels(use_adjusted_sf, vary_n, show_n=False):
 
     # Generate labels for each sf condition
     sf_labels = []
-    for i_cpd, i_sf, i_n in zip([2, 8, 16], label_sf_vals, label_n_vals):
+    for i_cpd, i_sf, i_n in zip([2, 8, 16], sf_vals, label_n_vals):
         i_lbl = build_label(i_cpd, i_sf, i_n)
         sf_labels.append(i_lbl)
 
     return sf_labels, sf_vals, n_vals
 
 
-def build_label(sf, fwhm, n=None):
-    label = f"{sf} c/{deg}\n{m_sym['o_fwhm']}={fwhm}{deg}"
+def build_label(sf, hwhm, n=None):
+    label = f"{sf} c/{deg}\n{m_sym['o_hwhm']}={hwhm}{deg}"
     if n is not None:
         label += f"\nN={n}"
 
@@ -87,7 +80,7 @@ settings = {
          # ['unweighted', 'magnitude-weighted', 'peak', 'distance-weighted']
 
          'ignore': ['contrast',
-                    'tmp_decoder', 'tmp_propn_cardinal', 'tmp_total_n', 'tmp_oblique_fwhm', 'tmp_fwhm_fraction',
+                    'tmp_decoder', 'tmp_propn_cardinal', 'tmp_total_n', 'tmp_oblique_hwhm', 'tmp_hwhm_fraction',
                     'tmp_noise_fraction', 'tmp_cardinal_noise', 'tmp_baseline', 'tmp_con'],
          'behavioural_oei': [1.06, 1.39, 1.79],
          'behavioural_t': [[0.459, 1.123, 5.154], [0.491, 1.792, 9.499]],
@@ -105,7 +98,7 @@ settings = {
                     },
          'decoder_list': ['ML', 'PV', 'WTA'],  # ['ML', 'PV', 'WTA']
          'contrast': 100,
-         'ignore': ['tmp_decoder', 'tmp_propn_cardinal', 'tmp_total_n', 'tmp_oblique_fwhm', 'tmp_fwhm_fraction',
+         'ignore': ['tmp_decoder', 'tmp_propn_cardinal', 'tmp_total_n', 'tmp_oblique_hwhm', 'tmp_hwhm_fraction',
                     'tmp_noise_fraction', 'tmp_cardinal_noise', 'tmp_baseline', 'tmp_con'],
          'behavioural_oei': [2.45, 3.25, 3.36],
          'behavioural_t': [[0.817, 1.016, 1.339], [2.033, 3.261, 4.049]],
@@ -113,8 +106,8 @@ settings = {
 }
 
 # Global settings #
-oblique_fwhm_filter = [70, 50, 30, 20]
-fwhm_fraction_filter = [1, 0.8, 0.6, 0.4, 0.2]
+oblique_hwhm_filter = [70, 50, 30, 20]
+hwhm_fraction_filter = [1, 0.8, 0.6, 0.4, 0.2]
 noise_fraction_filter = [0.5, 1, 2, 3, 4, 5]
 contrast_filter = None  # default (changed later)
 
@@ -124,12 +117,12 @@ sf_labels, sf_vals, n_vals = get_sf_labels(use_adjusted_sf=True, vary_n=False, s
 # Define params to overwrite eveything else
 conds_paper_sf = {}
 for i_label, i_sf, i_n in zip(sf_labels, sf_vals, n_vals):
-    conds_paper_sf[i_label] = {'oblique_fwhm': i_sf, 'total_n': i_n}
+    conds_paper_sf[i_label] = {'oblique_hwhm': i_sf, 'total_n': i_n}
 
 # Default param values - same across all graphs - overwritten by fixed_params and variable params
 default_params = {'total_n': 540,  # 540, 30, 16
                   'propn_cardinal': 0.5,
-                  'oblique_fwhm': 57.6, 'fwhm_fraction': 1,
+                  'oblique_hwhm': 28.1, 'hwhm_fraction': 1,
                   'cardinal_noise': [1, 0.5], 'noise_fraction': 1,
                   'oblique_rmax': 60, 'rmax_fraction': 1,
                   'spont': '[3, 3]', 'crf_c50': 24, 'crf_exponent': 2,
@@ -138,14 +131,14 @@ default_params = {'total_n': 540,  # 540, 30, 16
 
 # Fixed param vals for each set of graphs - code will generate conditions based on these
 fixed_params = {'propn_cardinal': [0.5, 0.67],
-                'fwhm_fraction': [1, 0.5],
+                'hwhm_fraction': [1, 0.5],
                 'noise_fraction': [1, 0.5],
                 'rmax_fraction': [1, 2],
                 }
 
 # Variable param values determining the hue (different lines) on each graph
 variable_params = {'propn_cardinal': [1, 0.9, 0.8, 0.7, 0.6, 0.5],
-                   'fwhm_fraction': fwhm_fraction_filter,
+                   'hwhm_fraction': hwhm_fraction_filter,
                    'noise_fraction': noise_fraction_filter,
                    'rmax_fraction': [1, 1.25, 1.67],
                    }
@@ -181,7 +174,7 @@ for i_task in settings:  # loop through each task
     thresh_data = []
     oei_data = []
     param_cols = [
-        'contrast', 'total_n', 'propn_cardinal', 'oblique_fwhm', 'fwhm_fraction',
+        'contrast', 'total_n', 'propn_cardinal', 'oblique_hwhm', 'hwhm_fraction',
         'cardinal_noise', 'noise_fraction', 'rmax_fraction', 'oblique_rmax',
         'spont', 'crf_exponent', 'crf_c50', 'tuning_dist',
     ]
@@ -248,7 +241,7 @@ for i_task in settings:  # loop through each task
     hue_params = [
         {
             'propn_cardinal': [0.67],
-            'fwhm_fraction': [0.5],
+            'hwhm_fraction': [0.5],
             'noise_fraction': [0.5],
             'rmax_fraction': [2],
         },
@@ -258,10 +251,10 @@ for i_task in settings:  # loop through each task
         {'propn_cardinal': 0.5},
         {'propn_cardinal': 0.67},
         # [{'propn_cardinal': 0.75},
-        {'fwhm_fraction': 0.5},
-        # [{'fwhm_fraction': 0.33},
-        {'propn_cardinal': 0.67, 'fwhm_fraction': 0.5},
-        {'rmax_fraction': 2, 'fwhm_fraction': 0.5},
+        {'hwhm_fraction': 0.5},
+        # [{'hwhm_fraction': 0.33},
+        {'propn_cardinal': 0.67, 'hwhm_fraction': 0.5},
+        {'rmax_fraction': 2, 'hwhm_fraction': 0.5},
     ]
 
     # Plots

@@ -13,7 +13,7 @@ from mytools.dframe_tools import to_csv_pkl, change_dframe_colnames
 from mytools.os_tools import make_paths
 # import model components
 from components.general_functions import join_dicts, get_condcombos
-from components.run import mocs_task, staircase_task, run
+from components.run import mocs_task, run
 from components.population_code import Params, Tiling, gen_population_code
 
 
@@ -46,14 +46,12 @@ if __name__ == '__main__':
     # SETTINGS
     _debug = False
     _thesis_plots = False
-    use_staircase = False  # Adaptive staircase design (too susceptible to noise / biases)
-    use_mocs = True  # Method of constant stimuli design
     show_errors = True  # Whether to print errors inside functions
     sampling = 'whole'  # 'whole'=all prefs drawn from distribution, 'indiv'=prefs for each ori popn
     run_type = 'multi_proc'  # 'single' or 'loop' or 'multi_proc'
 
     # Run information
-    run_tasks = ['con_det', 'ori_dis']  # ['con_det', 'ori_dis', 'ori_id']
+    run_tasks = ['con_det', 'ori_dis']  # ['con_det', 'ori_dis']
     run_ori_stds = [0, 45]
     run_contrasts = [100]
     n_level_reps = 1000
@@ -81,8 +79,8 @@ if __name__ == '__main__':
                            # 'n_prefs': [270, 360],
                            # 'n_prefs': [45, 60],
                            'n_prefs': [12],
-                           'fwhm': [
-                               np.round(_i * _j, 2) for _i in [57.6, 30.4, 22.2]
+                           'hwhm': [
+                               np.round(_i * _j, 2) for _i in [28.1, 15.0, 22.2]
                                # np.round(_i * _j, 2) for _i in [22.2]
                                for _j in [1, 0.5]
                            ],  # full-width half-max of gaussian tuning mod_orispace
@@ -99,8 +97,8 @@ if __name__ == '__main__':
                           'n_prefs': [12],  # [45, 36, 27, 18, 10]
                           # 'n_prefs': [135, 89],
                           # 'n_prefs': [270, 180],
-                          'fwhm': [
-                              _i for _i in [57.6, 30.4, 22.2]
+                          'hwhm': [
+                              _i for _i in [28.1, 15.0, 11.0]
                               for _ in range(2)
                           ],
                           'pref_distrib': ["cos"],
@@ -149,48 +147,12 @@ if __name__ == '__main__':
     # join card/oblq vals together to facilitate looping through cond combos
     conds = join_dicts(params['cardinal'], params['oblique'])
 
-    # if any(_t == 'ori_id' for _t in run_tasks):
-    #     if _identical_template is True:
-    #         template_params = {
-    #             'template_intensity': [40, 20, 10, 5, 2.5, 1.25],  # Vary intensity of internally generated signal
-    #             'template_baseline': [False],
-    #             'template_decoder': decoders_ori,
-    #         }
-    #
-    #     # Template orientation params for OriId: [C, O]
-    #     # template_params = {
-    #     #     'template_n_prefs': [[_i, _i] for _i in [1, 3, 5, 15, 45]],  # [1, 3, 5, 15, 45]
-    #     #     'template_fwhm': [[_i * _j, _i] for _i in [50] for _j in [1, 0.4]],
-    #     #     'template_noise_scale': [[_i, _i * _j] for _i in [1] for _j in [1]],
-    #     #     'template_rmax': [[_i * _j, _i] for _i in [10, 20, 30, 40] for _j in [1]],
-    #     #     'template_decoder': [['ML', 'ML'], ['WTA', 'WTA']],
-    #     #     'template_contrast': [100],
-    #     #     'template_baseline': [False, True],  # if True then will generate perfect representation (baseline)
-    #     #     'template_prior': [False, True],  # if True then will apply prior to stimulus response
-    #     # }
-    #     else:
-    #         template_params = {
-    #             'template_n_prefs': [[119, 61]],
-    #             'template_fwhm': [[40, 20]],
-    #             'template_noise_scale': [[1, 1]],
-    #             'template_rmax': [[60, 60]],
-    #             'template_decoder': [['ML', 'ML']],
-    #             'template_intensity': [40, 20, 10, 5, 2.5, 1.25],
-    #             'template_baseline': [False],  # if True then will generate perfect representation (baseline)
-    #         }
-    #     conds = combine_dicts(conds, template_params)
-
     # Pooling information (not currently utilised - meant for consistency between detection and discrimination encoding)
     conds['pooling_method'] = params['pooling']['method']
     conds['pooling_exponent'] = params['pooling']['exponent']
     conds['pooling_q'] = params['pooling']['q']
     # Get list of all cond combinations
     cond_combos = get_condcombos(conds, fixed_ivs, interaction_ivs)  # isolated & interaction effects of interest
-
-    # # TEMPLATE CONDS #
-    # if any(_t == 'ori_id' for _t in run_tasks):
-    #     cond_combos = remove_baseline_repeats(cond_combos, template_params, ignore=['template_baseline'])
-    # / / / #
 
     counter = 0
     # init list of all datasets (idx corresponds to cond in condlist)
@@ -224,204 +186,47 @@ if __name__ == '__main__':
                                                 'pooling_q': i_conds['pooling_q']
                                                 })
 
-        # if any(_t == 'ori_id' for _t in run_tasks):
-        # # Load template orientation
-        # # TEMPLATE_ORI POPULATION CODE - for generating template orientation
-        # if i_conds['template_baseline'] is False:  # generate template ori from population
-        #     template_conds = deepcopy(i_conds)  # Todo - is this needed?
-        #     for t_param in template_params:
-        #         if any(_i == t_param for _i in ['template_decoder', 'template_intensity', 'template_baseline']):
-        #             continue
-        #         t_key = t_param.split("template_")[1]  # Remove "template_" from key
-        #         template_conds[t_key] = template_conds[t_param]  # Replace cond with template val (if specified)
-        #     # Params for cardinal and oblique populations
-        #     template_cardinal, template_oblique = set_params(template_conds, cardinal_idx=0, oblique_idx=1)
-        #     for p in shared_params:
-        #         template_cardinal.__setattr__(p, shared_params[p])
-        #         template_oblique.__setattr__(p, shared_params[p])
-        #     PopCode_template = gen_population_code(template_cardinal, template_oblique, OriSpace,
-        #                                            pref_sampling='whole')
-        #     # Set template decoder for this cond
-        #     PopCode_template.template_decoder = template_conds['template_decoder']
-        #
-        #     # Load template orientation
-        #     for i_target_ori in run_ori_stds:
-        #         PopCode_template.decode_response(i_conds['template_decoder'], i_target_ori,
-        #                                          stim_contrast=i_conds['template_intensity'], n_reps=10000,
-        #                                          save_decoded=True)  # Load template ori estimates
-        #     PopCode.decoded_template = PopCode_template.saved_response  # Save template estimates in og PopCode
-        # else:
-        #     # Baselines = perfect representation
-        #     PopCode.decoded_template = {0: arr([0] * 10000), 45: arr([45] * 10000)}
-
         # Update params
         run_info = i_conds
         datasets = {}
         # # # METHOD OF CONSTANT STIMULI # # #
-        if use_mocs:
-            print(f"\nMocs")
-            datasets['mocs'] = {}
-            # Contrast Detection
-            if any(i == 'con_det' for i in run_tasks):
-                levels_contrasts = np.hstack([
-                    np.linspace(0.01, 0.1, 3),
-                    np.linspace(0.1, 1, 9),
-                    np.linspace(1, 10, 9),
-                    np.linspace(10, 100, 3)]
-                )
-                levels_contrast = np.asarray(list(set(levels_contrasts)))  # remove repeats
-                tic = time.time()
-                condet_data = run(experiment=mocs_task, model=PopCode, decoders=decoders_condet,
-                                  stdoris=run_ori_stds, contrasts=[None], design='mocs',
-                                  run_type_=run_type, n_level_reps=n_level_reps,
-                                  _plot_psychometric=False,
-                                  levels=levels_contrasts, task='con_det')
-                datasets['mocs']['con_det'] = condet_data
-                print(f'MOCS: ConDet took {time.time() - tic:.2f} sec')
+        print(f"\nMocs")
+        datasets['mocs'] = {}
+        # Contrast Detection
+        if any(i == 'con_det' for i in run_tasks):
+            levels_contrasts = np.hstack([
+                np.linspace(0.01, 0.1, 3),
+                np.linspace(0.1, 1, 9),
+                np.linspace(1, 10, 9),
+                np.linspace(10, 100, 3)]
+            )
+            levels_contrast = np.asarray(list(set(levels_contrasts)))  # remove repeats
+            tic = time.time()
+            condet_data = run(experiment=mocs_task, model=PopCode, decoders=decoders_condet,
+                              stdoris=run_ori_stds, contrasts=[None], design='mocs',
+                              run_type_=run_type, n_level_reps=n_level_reps,
+                              _plot_psychometric=False,
+                              levels=levels_contrasts, task='con_det')
+            datasets['mocs']['con_det'] = condet_data
+            print(f'MOCS: ConDet took {time.time() - tic:.2f} sec')
 
-            # Orientation Discrimination
-            if any(_t == 'ori_dis' for _t in run_tasks):
-                # don't repeat ori_dis if conditions have previously been completed and only template_noise changing...
-                # ... as this only affects identification judgements
-
-                # if any(_t == 'ori_id' for _t in run_tasks):
-                #     # Check whether discrimination has already been performed for this condition
-                #     _skip_dis = check_if_skip_discrimination(cond_combos, idx_conds, ignore_list=list(template_params))
-                #     if _skip_dis is True:
-                #         continue
-
-                print('oridis')
-                levels_ori_offsets = np.hstack([
-                    np.linspace(0.01, 0.1, 3),
-                    np.linspace(0.1, 1, 7),
-                    np.linspace(1, 10, 7),
-                    np.linspace(10, 100, 3),
-                ])
-                levels_ori_offsets = np.asarray(list(set(levels_ori_offsets)))  # remove repeats
-                tic = time.time()
-                datasets['mocs']['ori_dis'] = run(experiment=mocs_task, model=PopCode, decoders=decoders_ori,
-                                                  stdoris=run_ori_stds, contrasts=run_contrasts,
-                                                  design='mocs', _plot_psychometric=_thesis_plots,
-                                                  run_type_=run_type, n_level_reps=n_level_reps,
-                                                  levels=levels_ori_offsets, task='ori_dis')
-                print(f'MOCS: OriDis took {time.time() - tic:.2f} sec')
-
-            # Orientation Identification
-            if any(i == 'ori_id' for i in run_tasks):
-                if _identical_template is True:
-                    # Template params are the same as encoding population
-                    template_params = {
-                        # General params
-                        # 'template_intensity': [40, 10, 5, 2.5],  # Intensity of internally generated signal
-                        'template_intensity': [[40, 20], [20, 10], [10, 5]],  # Intensity of internally generated signal
-                        'template_baseline': [False],  # Adds run w/ perfect internal representation of std_ori
-                        'template_decoder': decoders_ori,
-                    }
-                else:
-                    # Template params are independent from encoding population
-                    template_params = {
-                        # General params
-                        'template_intensity': [40, 10, 5, 2.5],  # Intensity of internally generated signal
-                        'template_baseline': [False],  # Adds run w/ perfect internal representation of std_ori
-                        'template_decoder': ['ML'],
-                        # Cardinal and oblique params
-                        'n_prefs': [[119, 61]],
-                        'fwhm': [[40, 20]],
-                        'noise_scale': [[1, 1]],
-                        'rmax': [[60, 60]],
-                    }
-                template_cond_combos = get_condcombos(template_params)
-                # Loop through each template cond combo
-                data_oriid = []
-                for i_tmp_conds in template_cond_combos:
-                    if _identical_template is True:
-                        PopCode_template = deepcopy(PopCode)
-                    else:
-                        # If not specified in template conds, set default to i_conds
-                        for i_param in i_conds:
-                            if i_tmp_conds.get(i_param) is None:
-                                i_tmp_conds[i_param] = i_conds[i_param]
-                        # Params for cardinal and oblique populations
-                        tmp_cardinal, tmp_oblique = set_params(i_tmp_conds, cardinal_idx=0, oblique_idx=1)
-                        for p in shared_params:
-                            tmp_cardinal.__setattr__(p, shared_params[p])
-                            tmp_oblique.__setattr__(p, shared_params[p])
-                        # Init template population
-                        PopCode_template = gen_population_code(tmp_cardinal, tmp_oblique, orispace,
-                                                               pref_sampling='whole',
-                                                               g_params={'tuning_dist': tuning_dist})
-                    # Decode template orientation and save responses
-                    for i_target_ori in run_ori_stds:
-                        if i_target_ori % 90 == 0:
-                            i_intensity = i_tmp_conds['template_intensity'][0]
-                        else:
-                            i_intensity = i_tmp_conds['template_intensity'][1]
-                        PopCode_template.decode_response(i_tmp_conds['template_decoder'], i_target_ori,
-                                                         stim_con=i_intensity, n_reps=10000,
-                                                         save_decoded=True)  # Load template ori estimates
-
-                        # PopCode_template.decode_response(i_tmp_conds['template_decoder'], i_target_ori,
-                        #                                  stim_contrast=i_tmp_conds['template_intensity'], n_reps=10000,
-                        #                                  save_decoded=True)  # Load template ori estimates
-                    PopCode.decoded_template = PopCode_template.saved_response  # Save template estimates in og PopCode
-
-                    # Levels
-                    levels_ori_offsets = np.hstack([
-                        np.linspace(0.01, 0.1, 3),
-                        np.linspace(0.1, 1, 9),
-                        np.linspace(1, 10, 9),
-                        np.linspace(10, 100, 3),
-                    ])
-                    tic = time.time()
-                    i_df = run(experiment=mocs_task, model=PopCode, decoders=decoders_ori, stdoris=run_ori_stds,
-                               contrasts=run_contrasts, design='mocs', _plot_psychometric=_thesis_plots,
-                               run_type_=run_type, n_level_reps=n_level_reps,
-                               levels=levels_ori_offsets, task='ori_id')
-                    i_df['tmp_intensity'] = f"{i_tmp_conds['template_intensity']}"
-                    data_oriid.append(i_df)
-                    # datasets['mocs']['ori_id'] = run(experiment=mocs_task, model=PopCode, decoders=decoders_ori,
-                    #                                  stdoris=run_ori_stds, contrasts=run_contrasts,
-                    #                                  design='mocs', _plot_psychometric=_thesis_plots,
-                    #                                  run_type_=run_type, n_level_reps=n_level_reps,
-                    #                                  levels=levels_ori_offsets, task='ori_id')
-                    print(f'MOCS: OriId took {time.time() - tic:.2f} sec')
-                datasets['mocs']['ori_id'] = pd.concat(data_oriid)
-        # # # STAIRCASE # # #
-        if use_staircase:
-            print(f"Adaptive staircase")
-            datasets['staircase'] = {}
-            for i_task in run_tasks:  # Loop through and run each version of the experiment
-                print(f"Adaptive staircase: {i_task}")
-                if i_task == 'con_det':
-                    staircase_params = {'start_level': 20, 'min_level': 0.2, 'max_level': 40,
-                                        'step_sizes': [0.3, 0.3, 0.15, 0.075], 'n_up': 1, 'n_down': 3,
-                                        'n_reversals': 10, 'revs_per_thresh': 6,
-                                        # Don't alter below params (chosen to produce reliable thresholds on con_det)
-                                        'n_runs': 500,
-                                        'std_n_reps': 2000, 'level_n_reps': 2000,
-                                        }
-                    i_decoders = decoders_condet
-                    i_contrasts = [None]
-                else:
-                    staircase_params = {'start_level': 30, 'min_level': 0.01, 'max_level': 60,
-                                        'step_sizes': [0.3, 0.3, 0.15, 0.075], 'n_up': 1, 'n_down': 3,
-                                        'n_reversals': 10, 'revs_per_thresh': 6,
-                                        'n_runs': 2000,  # More runs guarantees more reliable final threshold
-                                        'std_n_reps': 2000, 'level_n_reps': 500,
-                                        }
-                    i_decoders = decoders_ori
-                    i_contrasts = run_contrasts
-                tic = time.time()
-                staircase_results = run(experiment=staircase_task, model=PopCode, decoders=i_decoders,
-                                        stdoris=run_ori_stds, contrasts=i_contrasts,
-                                        design='staircase', run_type_=run_type,
-                                        staircase_params=staircase_params, task=i_task)
-                print(f'\nStaircase for {i_task} took {time.time() - tic:.2f} seconds\n')
-                staircase_summary = get_mean_data(staircase_results, ['task', 'decoder', 'ori_std', 'contrast'],
-                                                  dv='threshold')
-                staircase_summary = change_dframe_colnames(staircase_summary, ['mean', 'std'], ['threshold', 't_std'])
-                # Get means
-                datasets['staircase'][i_task] = staircase_summary
+        # Orientation Discrimination
+        if any(_t == 'ori_dis' for _t in run_tasks):
+            print('oridis')
+            levels_ori_offsets = np.hstack([
+                np.linspace(0.01, 0.1, 3),
+                np.linspace(0.1, 1, 7),
+                np.linspace(1, 10, 7),
+                np.linspace(10, 100, 3),
+            ])
+            levels_ori_offsets = np.asarray(list(set(levels_ori_offsets)))  # remove repeats
+            tic = time.time()
+            datasets['mocs']['ori_dis'] = run(experiment=mocs_task, model=PopCode, decoders=decoders_ori,
+                                              stdoris=run_ori_stds, contrasts=run_contrasts,
+                                              design='mocs', _plot_psychometric=_thesis_plots,
+                                              run_type_=run_type, n_level_reps=n_level_reps,
+                                              levels=levels_ori_offsets, task='ori_dis')
+            print(f'MOCS: OriDis took {time.time() - tic:.2f} sec')
 
         # DATASETS #
         # add current cond_combo info and design
@@ -467,9 +272,8 @@ if __name__ == '__main__':
                     dframe['label'] = run_label
                     to_csv_pkl(dframe, i_dir, f"{idx}_{i_design}_{i_task}", rnd=4, _csv=True, _pkl=False)
 
-    # Save data for mocs and staircase separately
-    # Pull out mocs and staircase data
-    for i_design in ['mocs', 'staircase']:
+    # Pull out mocs data
+    for i_design in ['mocs']:
         i_thresh_data = []
         for idx_cond, _ in enumerate(datasets_all_conds):
             i_cond_data = datasets_all_conds[idx_cond]

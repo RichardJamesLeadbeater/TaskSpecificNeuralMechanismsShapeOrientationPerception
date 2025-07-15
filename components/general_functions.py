@@ -17,43 +17,6 @@ from numpy import nan
 from scipy import special
 
 
-def asarray(*args, **kwargs):
-    # creates function that forces to float16
-    kwargs.setdefault("dtype", np.float32)
-    return np.array(*args, **kwargs)
-
-
-def save_attrib(attrib, label, path=None):
-    # save method for externally saved attribs
-    # must save filenames in this format f"{label}.npy"
-    if path is None:
-        path = os.path.join(os.getcwd(), 'components', 'attribs')
-    with open(os.path.join(path, f"{label}.pkl"), "wb") as file:
-        pickle.dump(attrib, file, protocol=pickle.HIGHEST_PROTOCOL)
-
-
-def get_attrib(label, path=None):
-    # getter method for externally saved attributes
-    # must save filenames in this format f"{label}.npy"
-    if path is None:
-        path = os.path.join(os.getcwd(), 'components', 'attribs')
-    tic = time.time()
-    with open(os.path.join(path, f"{label}.pkl"), 'rb') as file:
-        attrib = pickle.load(file)
-    print(f'pickle load: {time.time() - tic}')
-    return attrib
-
-
-def get_boundaries(base_ori, bound_range, abs_max_ori):
-    # multiple boundaries across circular orispace (allows for shifting prefs window)
-    base_oris = np.arange(base_ori - abs_max_ori, base_ori + abs_max_ori + 1, 180)
-    base_oris = base_oris[(base_oris >= -abs_max_ori) & (base_oris <= abs_max_ori)]  # only within tiling range
-    boundaries = [[]] * len(base_oris)
-    for idx, val in enumerate(base_oris):
-        boundaries[idx] = [val - (bound_range / 2), val + (bound_range / 2)]
-    return boundaries
-
-
 def find_nearest(array, value):  # nearest value and index in array for each value
     if isinstance(value, int) or isinstance(value, float):
         nearest_idx = (np.abs(array - value)).argmin()
@@ -69,36 +32,7 @@ def find_nearest(array, value):  # nearest value and index in array for each val
     return np.asarray(nearest_value), np.asarray(nearest_idx)
 
 
-def sort_by_standard(standard, *args):
-    # sorts arrays with inds matching ascending order of standard
-    standard = np.asarray(standard)
-    inds = standard.argsort()  # gets indices of sorted standard
-    sorted_arrays = [standard[inds[::1]]]  # create list with first element as sorted standard
-    for i_arg in args:
-        i_arg = np.asarray(i_arg)
-        sorted_arrays.append(i_arg[inds[::1]])  # append arrays sorted to inds of standard
-    # sorted in ascending numerical order [::1]
-    return sorted_arrays
-
-
-def rolling_window(vector, window):
-    # create rolling window across vector
-    m = len(vector) - len(window)
-    windows_idxs = hankel(np.arange(0, m + 1), np.arange(m, len(vector)))
-    windows_vals = vector[windows_idxs]
-    return windows_vals, windows_idxs
-
-
-def generate_gaussian(x, mu, sigma):
-    # gaussian tunings for multiple prefs (mu) & single halfwidth (sigma)
-    mu = np.asarray([mu]).transpose()  # format to broadcast together with x
-    p1 = 1 / (sigma * np.sqrt(2 * np.pi))
-    p2 = -0.5 * ((x - mu) / sigma) ** 2
-    tunings = p1 * np.exp(p2)
-    return tunings
-
-
-def generate_cosine(x, n_cycles=1, inverse=False):
+def generate_cosine(x, n_cycles=1):
     # shift so equal vals either side of 0
     x = x - np.mean(x)
     # convert x axis to rad and take cosine
@@ -149,14 +83,6 @@ def normalise(x, val_start=None, val_end=None, scalar=None, _invert=False):
         scalar = val_end  # scaled from val_start to val_end
     y = y * scalar  # transform to scaled units in new space
     return y
-
-
-def angles_equal(x, y, units='deg'):
-    # compare whether two angles are equivalent by converting to radians and using remainder of pi
-    if units == 'deg':
-        x, y = np.radians(x), np.radians(y)
-    # rounding provides precision up to 5 dec places
-    return np.round(x % np.pi, 6) == np.round(y % np.pi, 6)
 
 
 def run_function_and_unpack_args_kwargs(fn, args, kwargs):
@@ -239,10 +165,10 @@ def poissonlike_noise(array, scalar=1):
         scalar = np.sqrt(scalar)  # convert to Fano Factor (e.g., noise_scale of 2 results in Fano of 2)
         scalar_arr = (np.ones(array.T.shape) * scalar).T
         noise = np.sqrt(array) * np.random.normal(0, scalar_arr)
-        z = 0
+
         # for sanity check, make sure np.var(array + noise, axis=1) == mean_val when scalar=1
         # np.var(array + noise) / np.mean(array) = FanoFactor
         # mean_fano = np.mean(np.var(array + noise, axis=1) / np.mean(array, axis=1))  # should approx scalar
-        z = 0
+
     return noise
 

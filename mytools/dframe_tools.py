@@ -114,24 +114,6 @@ def to_csv_pkl(dframe, folder, title, rnd=2, _csv=True, _pkl=True):
         dframe.to_pickle(os.path.join(folder, f"{title}.pkl"))
 
 
-def cols2rows(dframe, change_cols, new_col):
-    # useful to convert summary_data data tables for plotting
-    keep_cols = [i for i in dframe.columns if all(j != i for j in change_cols)]
-    output = init_cols(keep_cols + [new_col] + ['score'])
-    for i_change in change_cols:
-        output[new_col] += [i_change] * len(dframe)
-        output['score'] += dframe[i_change].to_list()
-        for i_keep in keep_cols:
-            output[i_keep] += dframe[i_keep].to_list()
-    return pd.DataFrame(output)
-
-
-def remove_rows(dframe, col, vals):
-    rows2remove = index_dframe(dframe, columns=[col], values=vals, index_filter='or').index
-    dframe = dframe.drop(index=rows2remove)
-    return dframe
-
-
 def custom_sort(dframe, cols, ordered_labels):
     # input: cols as list, ordered_labels as list of lists
     # if single list is input for a single column

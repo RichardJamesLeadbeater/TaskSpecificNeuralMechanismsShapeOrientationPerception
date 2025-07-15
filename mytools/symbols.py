@@ -58,23 +58,11 @@ def uppercase_greek_alphabet():
 
 def model_symbols():
     # Symbol list
-    sym = lowercase_greek_alphabet()
-    SYM = uppercase_greek_alphabet()
-
-    # # Use a key in case vals need changing later
-    # n = "N"
-    # fwhm = "h"  # sym['sigma']
-    # noise_scale = "F"  # sym['lambda']
-    # rmax = "g"  # sub('r', 'max')
-
     param_labels = {
         # Each model parameter and associated symbols
         'N': italics("N"),
-        # 'fwhm': sub(sym['sigma'], 'ori'),
-        'fwhm': 'h',  # Used in paper as symbol for HWHM
-        # 'noise_scale': sub(sym['lambda'], 'F'),
+        'hwhm': 'h',  # Used in paper as symbol for HWHM
         'noise_scale': "F",
-        # 'rmax': sub('r', 'max'),
         'rmax': 'g',
         'spont': sub('r', '0'),
         'crf_c50': sub('c', '50'),
@@ -83,30 +71,21 @@ def model_symbols():
         # Add cardinal and oblique versions of each
         'c_N': sub('N', 'C'),
         'o_N': sub('N', 'O'),
-        # 'c_fwhm': sub(sym['sigma'], 'C'),
-        # 'o_fwhm': sub(sym['sigma'], 'O'),
-        'c_fwhm': sub('h', 'C'),
-        'o_fwhm': sub('h', 'O'),
-        # 'c_noise': sub(sym['lambda'], 'C'),
-        # 'o_noise': sub(sym['lambda'], 'O'),
+        'c_hwhm': sub('h', 'C'),
+        'o_hwhm': sub('h', 'O'),
         'c_noise': sub("F", 'C'),
         'o_noise': sub("F", 'O'),
-        # 'o_rmax': f"{sub('r', 'max  O')}",
-        # 'c_rmax': f"{sub('r', 'max  C')}",
         'o_rmax': f"{sub('g', 'O')}",
         'c_rmax': f"{sub('g', 'C')}",
 
         # Relative parameters for figure legends
         'total_n': f"{sub('N', 'total')}",
         'propn_cardinal': f"{sub('N', 'total')} / {sub('N', 'C')}",
-        # 'fwhm_fraction': f"{sub(sym['sigma'], 'C')} / {sub(sym['sigma'], 'O')}",
-        'fwhm_fraction': f"{sub('h', 'C')} / {sub('h', 'O')}",
-        # 'noise_fraction': f"{sub(sym['lambda'], 'O')} / {sub(sym['lambda'], 'C')}",
-        # 'noise_fraction': f"{sub('F', 'O')} / {sub('F', 'C')}",
+        'hwhm_fraction': f"{sub('h', 'C')} / {sub('h', 'O')}",
         'noise_fraction': f"{sub('F', 'C')} / {sub('F', 'O')}",
-        # 'rmax_fraction': f"{sub('r', 'max C')} / {sub('r', 'max O')}",
         'rmax_fraction': f"{sub('g', 'C')} / {sub('g', 'O')}",
     }
+
     return param_labels
 
 
