@@ -73,7 +73,7 @@ if __name__ == '__main__':
             [180, 90],  # Cardinal overrepresentation
         ],
         'hwhm': [
-            *[[i, i] for i in [sf_hwhm]],  # Uniformly decreasing bandwidths with increasing SF
+            *[[i, i] for i in sf_hwhm],  # Uniformly decreasing bandwidths with increasing SF
             *[[i * 0.5, i] for i in sf_hwhm]  # Anistropic bandwidths that decrease with increasing SF
         ],
         'noise_scale': [
