@@ -296,20 +296,21 @@ class PopulationCode:
 
         return resp_noisy
 
-    def detection(self, response_decoder='summation', stim_ori=None, stim_con=None, n_reps=None):
+    def detection(self, pooling_method, stim_ori=None, stim_con=None, n_reps=None):
         # return pooled population response for detection task #
         if all(i or i == 0 for i in [stim_ori, stim_con, n_reps]):
             self.gen_stim_response(stim_ori, stim_con, n_reps)
-        if response_decoder == 'peak':
-            decoded_val = np.max(self.resp_noisy, 0)
-        elif response_decoder == 'sum':
-            decoded_val = np.sum(self.resp_noisy, 0)  # sum across neurons for each trial
-        elif response_decoder == 'mag':  # weighted by response magnitude
-            decoded_val = self.vector_mag()
+        if pooling_method == 'peak':
+            pooled_response = np.max(self.resp_noisy, 0)
+        elif pooling_method == 'sum':
+            pooled_response = np.sum(self.resp_noisy, 0)  # sum across neurons for each trial
+        elif pooling_method == 'mag':  # weighted by response magnitude
+            pooled_response = self.vector_mag()
         else:
-            print('No detection decoder chosen')
-            decoded_val = None
-        return decoded_val
+            print('No detection pooling method chosen')
+            pooled_response = None
+
+        return pooled_response
 
     def vector_mag(self, pop_resp=None, q=None):
         # weighted sum of population response (Quick, 1974; also see Goris 2013)

@@ -1,19 +1,8 @@
 import itertools
-from itertools import repeat
-import random
 import numpy as np
-from numpy import asarray as arr, newaxis as nax
-from scipy.linalg import hankel
+from numpy import asarray as arr
 import pandas as pd
-import time
-import dill
-import multiprocessing as mp
 import os
-import pickle
-from scipy.optimize import curve_fit
-from datetime import datetime
-import matplotlib.pyplot as plt
-from numpy import nan
 from scipy import special
 
 
@@ -51,17 +40,18 @@ def generate_vonmises(x, prefs, kappa, input_format='rad'):
         x = np.radians(x)
         prefs = np.radians(prefs)
 
-    x = x[:, np.newaxis]  # shape (n_points, 1)
-    prefs = prefs[np.newaxis, :]  # shape (1, n_prefs)
-    kappa = kappa[np.newaxis, :]  # shape (1, n_prefs)
+    # Reshape variables for broadcast
+    x = x[:, np.newaxis]  # (1, n_points)
+    prefs = prefs[np.newaxis, :]  # (n_prefs, 1)
+    kappa = kappa[np.newaxis, :]  # (n_prefs, 1)
 
     # Von Mises tuning (periodic over 180° → 2x)
-    exponent = kappa * np.cos(2 * (x - prefs))
+    exponent = kappa * np.cos(2 * (x - prefs))  # shape = (n_points, n_prefs)
     tunings = np.exp(exponent)
 
     # Normalise each curve
     norm_const = 2 * np.pi * special.i0(kappa)
-    tunings /= norm_const
+    tunings = tunings / norm_const
 
     return tunings.T  # shape (n_prefs, n_points)
 

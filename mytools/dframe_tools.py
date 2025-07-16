@@ -104,7 +104,7 @@ def index_dframe(dframe, columns, values, index_filter='and'):
     return output_dframe
 
 
-def to_csv_pkl(dframe, folder, title, rnd=2, _csv=True, _pkl=True):
+def to_csv_pkl(dframe, folder, title, rnd=2, _csv=True, _pkl=False):
     title = title.split('.csv')[0].split('.pkl')[0]  # Remove file suffix
     if _csv is True:
         # Save as .csv

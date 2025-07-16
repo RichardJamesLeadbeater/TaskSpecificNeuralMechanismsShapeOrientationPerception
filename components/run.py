@@ -68,7 +68,7 @@ def run(experiment, model, decoders=('WTA', 'PV', 'ML'), stdoris=(0, 45), contra
 
         dataset = pd.concat(multiproc_data, ignore_index=True)
         dataset = dataset.sort_values(by=['decoder', 'ori_std', 'contrast'])
-        print(f"Multiprocessing runtime: {time.time() - tic:.2f} sec")
+        # print(f"Multiprocessing runtime: {time.time() - tic:.2f} sec")
 
     else:
         raise ValueError(f"Invalid run_type_: {run_type_}. Choose from 'single', 'loop', or 'multi_proc'.")
@@ -118,21 +118,9 @@ def mocs_task(model, decoder, ori_std, contrast, task='', **kwargs):
             ccw_std_decoded = model.decode_response(decoder, ori_std, contrast, split_n_reps)
             ccw_comp_decoded = model.decode_response(decoder, ccw_comp_ori, contrast, split_n_reps)  # CCW
             # DECISION
-            if task == 'ori_dis':
-                cw_is_corr = cw_comp_decoded > cw_std_decoded  # Clockwise
-                ccw_is_corr = ccw_comp_decoded < ccw_std_decoded  # Counterclockwise
-                is_corr = np.hstack([cw_is_corr, ccw_is_corr])  # Proportion correct
-            elif task == 'ori_id':
-                # Generate template orientation
-                template_ori_cw = model.gen_template_ori(ori_std, split_n_reps)
-                template_ori_ccw = model.gen_template_ori(ori_std, split_n_reps)
-                # Clockwise
-                cw_is_corr = abs(cw_std_decoded - template_ori_cw) < abs(cw_comp_decoded - template_ori_cw)
-                ccw_is_corr = abs(ccw_std_decoded - template_ori_ccw) < abs(ccw_comp_decoded - template_ori_ccw)
-                # Proportion correct
-                is_corr = np.hstack([cw_is_corr, ccw_is_corr])
-            else:
-                is_corr = None
+            cw_is_corr = cw_comp_decoded > cw_std_decoded  # Clockwise
+            ccw_is_corr = ccw_comp_decoded < ccw_std_decoded  # Counterclockwise
+            is_corr = np.hstack([cw_is_corr, ccw_is_corr])  # Proportion correct
         elif task == 'con_det':
             # compare response for stimulus at level contrast, and for stimulus at 0 contrast (noise)
             std_resp = model.detection(decoder, ori_std, stim_con=i_level, n_reps=n_level_reps_)
@@ -154,15 +142,14 @@ def mocs_task(model, decoder, ori_std, contrast, task='', **kwargs):
                 _save = False
                 save_dir = None
             # for tasks where orientation is manipulated
-            if any(i == task for i in ['ori_id', 'ori_dis']):
-                if task == 'ori_dis':
-                    plot_psychometric(x_axis=levels_, y_axis=rawdata['propn_corr'],
-                                      x_fit_axis=curvefit['x'], y_fit_axis=curvefit['y'],
-                                      threshold_value=curvefit['threshold'],
-                                      x_label='Orientation Difference (deg)', y_label='Proportion Correct',
-                                      y_lim=(0.45, 1.02), x_scale='log', _percent=True,
-                                      _save=_save, save_dir=save_dir, save_name=f"{task.upper()}_{decoder}",
-                                      title=f"{task.upper()} {ori_std}: {decoder} at {contrast}% contrast")
+            if task == 'ori_dis':
+                plot_psychometric(x_axis=levels_, y_axis=rawdata['propn_corr'],
+                                  x_fit_axis=curvefit['x'], y_fit_axis=curvefit['y'],
+                                  threshold_value=curvefit['threshold'],
+                                  x_label='Orientation Difference (deg)', y_label='Proportion Correct',
+                                  y_lim=(0.45, 1.02), x_scale='log', _percent=True,
+                                  _save=_save, save_dir=save_dir, save_name=f"{task.upper()}_{decoder}",
+                                  title=f"{task.upper()} {ori_std}: {decoder} at {contrast}% contrast")
             # for tasks where orientation is manipulated
             elif task == 'con_det':
                 plot_psychometric(x_axis=levels_, y_axis=rawdata['propn_corr'],
