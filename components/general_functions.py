@@ -1,27 +1,130 @@
 import itertools
+from itertools import repeat
+import random
 import numpy as np
-from numpy import asarray as arr
+from numpy import asarray as arr, newaxis as nax
+from scipy.linalg import hankel
 import pandas as pd
+import time
+import multiprocessing as mp
 import os
+import pickle
+from scipy.optimize import curve_fit
+from datetime import datetime
+import matplotlib.pyplot as plt
+from numpy import nan
 from scipy import special
 
 
-def find_nearest(array, value):  # nearest value and index in array for each value
-    if isinstance(value, int) or isinstance(value, float):
-        nearest_idx = (np.abs(array - value)).argmin()
-        nearest_value = array[nearest_idx]
-    else:
-        array = np.asarray(array)
-        value = np.asarray(value)
-        nearest_idx = []
-        nearest_value = []
-        for val in np.atleast_1d(value):
-            nearest_idx.append((np.abs(array - val)).argmin())
-            nearest_value.append(array[nearest_idx[-1]])
-    return np.asarray(nearest_value), np.asarray(nearest_idx)
+def asarray(*args, **kwargs):
+    # creates function that forces to float16
+    kwargs.setdefault("dtype", np.float32)
+    return np.array(*args, **kwargs)
 
 
-def generate_cosine(x, n_cycles=1):
+def save_attrib(attrib, label, path=None):
+    # save method for externally saved attribs
+    # must save filenames in this format f"{label}.npy"
+    if path is None:
+        path = os.path.join(os.getcwd(), 'components', 'attribs')
+    with open(os.path.join(path, f"{label}.pkl"), "wb") as file:
+        pickle.dump(attrib, file, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def get_attrib(label, path=None):
+    # getter method for externally saved attributes
+    # must save filenames in this format f"{label}.npy"
+    if path is None:
+        path = os.path.join(os.getcwd(), 'components', 'attribs')
+    tic = time.time()
+    with open(os.path.join(path, f"{label}.pkl"), 'rb') as file:
+        attrib = pickle.load(file)
+    print(f'pickle load: {time.time() - tic}')
+    return attrib
+
+
+def get_boundaries(base_ori, bound_range, abs_max_ori):
+    # multiple boundaries across circular orispace (allows for shifting prefs window)
+    base_oris = np.arange(base_ori - abs_max_ori, base_ori + abs_max_ori + 1, 180)
+    base_oris = base_oris[(base_oris >= -abs_max_ori) & (base_oris <= abs_max_ori)]  # only within tiling range
+    boundaries = [[]] * len(base_oris)
+    for idx, val in enumerate(base_oris):
+        boundaries[idx] = [val - (bound_range / 2), val + (bound_range / 2)]
+    return boundaries
+
+
+def convert_to_circular_space(vals, space_range):
+    """Wrap values around/within defined circular space"""
+    bound = space_range // 2
+    return ((arr(vals) + bound) % space_range) - bound
+
+
+def find_nearest(array, values):  # nearest value and index in array for each value
+    """
+    Find nearest value(s) and index(es) in `array` for each element in `values`.
+    """
+    array = np.asarray(array)
+    values = np.atleast_1d(values)
+
+    # Compute absolute difference for all values at once
+    diff = np.abs(array[None, :] - values[:, None])  # shape: [len(values), len(array)]
+    nearest_idx = diff.argmin(axis=1)
+    nearest_values = array[nearest_idx]
+
+    # Return scalar if input was scalar
+    if np.isscalar(values) or values.shape == (1,):
+        return nearest_values[0], nearest_idx[0]
+
+    return nearest_values, nearest_idx
+
+
+def sort_by_standard(standard, *args):
+    # sorts arrays with inds matching ascending order of standard
+    standard = np.asarray(standard)
+    inds = standard.argsort()  # gets indices of sorted standard
+    sorted_arrays = [standard[inds[::1]]]  # create list with first element as sorted standard
+    for i_arg in args:
+        i_arg = np.asarray(i_arg)
+        sorted_arrays.append(i_arg[inds[::1]])  # append arrays sorted to inds of standard
+    # sorted in ascending numerical order [::1]
+    return sorted_arrays
+
+
+def rolling_window(vector, window):
+    # create rolling window across vector
+    m = len(vector) - len(window)
+    windows_idxs = hankel(np.arange(0, m + 1), np.arange(m, len(vector)))
+    windows_vals = vector[windows_idxs]
+    return windows_vals, windows_idxs
+
+
+def generate_gaussian(x, mu, sigma):
+    # gaussian tunings for multiple prefs (mu) & single halfwidth (sigma)
+    mu = np.asarray([mu]).transpose()  # format to broadcast together with x
+    p1 = 1 / (sigma * np.sqrt(2 * np.pi))
+    p2 = -0.5 * ((x - mu) / sigma) ** 2
+    tunings = p1 * np.exp(p2)
+    return tunings
+
+
+def generate_wrapped_gaussian(x, mu, sigma, period=np.pi, wrap_range=3):
+    # gaussian tunings for multiple prefs (mu) & single halfwidth (sigma)
+    x = np.asarray(x)
+    mu = np.asarray(mu).reshape(-1, 1)  # shape (n_neurons, 1) for broadcasting
+
+    tunings = np.zeros((len(mu), len(x)))
+    for k in range(-wrap_range, wrap_range + 1):
+        # Shift by multiples of period
+        shifted_x = x + k * period
+        # Gaussian on shifted x
+        p1 = 1 / (sigma * np.sqrt(2 * np.pi))
+        p2 = -0.5 * ((shifted_x - mu) / sigma) ** 2
+        tunings += p1 * np.exp(p2)
+
+    return tunings
+
+
+def generate_cosine(x, n_cycles=1, inverse=False):
     # shift so equal vals either side of 0
     x = x - np.mean(x)
     # convert x axis to rad and take cosine
@@ -36,24 +139,16 @@ def generate_cosine(x, n_cycles=1):
 
 
 def generate_vonmises(x, prefs, kappa, input_format='rad'):
-    if input_format == 'deg':
+    if input_format == 'deg':  # orispace in radians
         x = np.radians(x)
         prefs = np.radians(prefs)
-
-    # Reshape variables for broadcast
-    x = x[:, np.newaxis]  # (1, n_points)
-    prefs = prefs[np.newaxis, :]  # (n_prefs, 1)
-    kappa = kappa[np.newaxis, :]  # (n_prefs, 1)
-
-    # Von Mises tuning (periodic over 180° → 2x)
-    exponent = kappa * np.cos(2 * (x - prefs))  # shape = (n_points, n_prefs)
-    tunings = np.exp(exponent)
-
-    # Normalise each curve
-    norm_const = 2 * np.pi * special.i0(kappa)
-    tunings = tunings / norm_const
-
-    return tunings.T  # shape (n_prefs, n_points)
+    # see Swindale (1998) for clear equations and HWHM calculation
+    p1 = kappa.T * (np.cos(2 * (x[:, nax] - prefs)))
+    tunings = np.exp(p1).T
+    normalisation_constant = 2 * np.pi * special.i0(kappa)
+    tunings = tunings / normalisation_constant
+    # plt.plot(tunings[::20, :].T)
+    return tunings
 
 
 def normalise(x, val_start=None, val_end=None, scalar=None, _invert=False):
@@ -80,6 +175,14 @@ def normalise(x, val_start=None, val_end=None, scalar=None, _invert=False):
         scalar = val_end  # scaled from val_start to val_end
     y = y * scalar  # transform to scaled units in new space
     return y
+
+
+def angles_equal(x, y, units='deg'):
+    # compare whether two angles are equivalent by converting to radians and using remainder of pi
+    if units == 'deg':
+        x, y = np.radians(x), np.radians(y)
+    # rounding provides precision up to 5 dec places
+    return np.round(x % np.pi, 6) == np.round(y % np.pi, 6)
 
 
 def run_function_and_unpack_args_kwargs(fn, args, kwargs):
@@ -150,22 +253,26 @@ def listallcombos(dicty, _save=False, savepath=None):
 
     if _save is True:
         pd.DataFrame(combo_list).to_csv(os.path.join(savepath, 'cond_list.csv'))
-
     return combo_list
 
 
-def poissonlike_noise(array, scalar=1):
+def poissonlike_noise(array, scale=1):
     array = arr(array)
-    if any(isinstance(array, i) for i in [float, int]):  # if single scalar then match to array shape
-        noise = np.sqrt(array) * np.random.normal(0, scalar, array.shape)
+    # Convert scalar to array if needed
+    if np.isscalar(scale):
+        scale_arr = np.sqrt(scale)  # scalar broadcasts automatically
     else:
-        scalar = np.sqrt(scalar)  # convert to Fano Factor (e.g., noise_scale of 2 results in Fano of 2)
-        scalar_arr = (np.ones(array.T.shape) * scalar).T
-        noise = np.sqrt(array) * np.random.normal(0, scalar_arr)
+        if array.ndim == 3:
+            scale_arr = np.sqrt(scale)[:, None, None]  # broadcast over repeats & orientations
+        elif array.ndim == 2:
+            scale_arr = np.sqrt(scale)[:, None]
 
-        # for sanity check, make sure np.var(array + noise, axis=1) == mean_val when scalar=1
-        # np.var(array + noise) / np.mean(array) = FanoFactor
-        # mean_fano = np.mean(np.var(array + noise, axis=1) / np.mean(array, axis=1))  # should approx scalar
+    # Generate noise
+    noise = np.sqrt(array) * np.random.normal(0, scale_arr, size=array.shape)
+
+    # for sanity check, make sure np.var(array + noise, axis=1) == mean_val when scalar=1
+    # np.var(array + noise) / np.mean(array) = FanoFactor
+    # mean_fano = np.mean(np.var(array + noise, axis=1) / np.mean(array, axis=1))  # should approx scalar
 
     return noise
 

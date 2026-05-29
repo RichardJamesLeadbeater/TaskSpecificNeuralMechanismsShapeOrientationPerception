@@ -168,3 +168,178 @@ def multifig_formatter(fig, **kwargs):
 
     return fig
 
+
+def _setup_figure(ax, fig, fig_dims):
+    """Helper to setup figure and axes consistently."""
+    if ax is None:
+        _fig, _ax = plt.subplots(figsize=fig_dims)
+    elif fig is None:
+        _ax = ax
+        _fig = _ax.figure
+    else:
+        _fig, _ax = fig, ax
+    return _fig, _ax
+
+
+def _apply_labels(ax, title, x_label, y_label, title_y=1.13):
+    """Helper to apply consistent labels."""
+    if title is not None:
+        ax.set_title(title, y=title_y, fontweight='bold')
+    ax.set_ylabel(y_label, labelpad=3, fontweight='bold')
+    ax.set_xlabel(x_label, labelpad=9, fontweight='bold')
+
+
+def _apply_ticks(ax, y_major_ticks, y_minor_ticks, x_major_ticks, x_minor_ticks):
+    """Helper to apply consistent tick formatting."""
+    if y_major_ticks is not None:
+        ax.set_yticks(y_major_ticks)
+        ax.set_yticklabels([f"{int(i)}" for i in y_major_ticks])
+    if y_minor_ticks is not None:
+        ax.set_yticks(y_minor_ticks, minor=True)
+    if x_major_ticks is not None:
+        ax.set_xticks(x_major_ticks)
+        ax.set_xticklabels([f"{int(i)}" for i in x_major_ticks])
+    if x_minor_ticks is not None:
+        ax.set_xticks(x_minor_ticks, minor=True)
+
+
+def _apply_legend(ax, legend, legend_title=''):
+    """Helper to apply consistent legend formatting."""
+    if legend is not False:
+        ax.legend(
+            title=legend_title,
+            loc='center left',
+            bbox_to_anchor=(1.02, 0.85),
+            borderaxespad=0,
+        )
+    else:
+        if ax.get_legend():
+            ax.get_legend().remove()
+
+
+def _save_figure(fig, save_dir, save_name, my_dpi):
+    """Helper to save figure consistently."""
+    if all(i for i in [save_dir, save_name]):
+        filepath = os.path.join(save_dir, save_name)
+        fig.savefig(filepath, dpi=my_dpi)
+
+
+def plot_bar(dframe, x, y, hue, hue_order=None, palette='colorblind', title='', y_label='', x_label='',
+             y_lim=None, y_major_ticks=None, y_minor_ticks=None, _log=False, log_y_lim=None,
+             custom_err=False, custom_err_label='t_sem', save_name='', save_dir=None,
+             fig_dims=(7, 4), my_dpi=100, close_plot=False, ax=None, fig=None, **kwargs):
+    """Create bar plot with error bars."""
+    _fig, _ax = _setup_figure(ax, fig, fig_dims)
+
+    if kwargs.get('show_errorBars', True) is True:
+        sns.barplot(data=dframe, x=x, y=y, hue=hue, hue_order=hue_order, palette=palette,
+                    capsize=0.05, err_kws={'linewidth': 2, 'color': [0.1, 0.1, 0.1, 0.8]},
+                    errorbar=('ci', 68), n_boot=2000, ax=_ax)
+    else:
+        sns.barplot(data=dframe, x=x, y=y, hue=hue, hue_order=hue_order, palette=palette,
+                    capsize=0, err_kws={'linewidth': 0, 'color': [1, 1, 1]},
+                    errorbar=None, ax=_ax)
+
+    _ax.yaxis.grid(which='both', linestyle='-', alpha=0.4)
+    _ax.set(ylim=y_lim)
+
+    if _log:
+        _ax.set_yscale('log')
+        _ax.set_ylim(log_y_lim)
+
+    # Apply hatches if requested
+    if kwargs.get('hatches'):
+        n_bars = len(dframe[x].unique())
+        hatches = [""] * n_bars + ["/"] * n_bars
+        for idx, _bar in enumerate(_ax.patches):
+            _bar.set_hatch(hatches[idx])
+            _bar.set_edgecolor('w')
+
+    _apply_labels(_ax, title, x_label, y_label, title_y=kwargs.get('title_y', 1.1))
+    _apply_ticks(_ax, y_major_ticks, y_minor_ticks, None, None)
+    _apply_legend(_ax, kwargs.get('legend', True), kwargs.get('legend_title', ''))
+
+    sns.despine(fig=_fig, ax=_ax, top=True, right=True)
+    _fig.set_dpi(my_dpi)
+    _fig.tight_layout()
+
+    _save_figure(_fig, save_dir, save_name, my_dpi)
+
+    if close_plot:
+        plt.close(_fig)
+
+    return _fig, _ax
+
+
+def plot_distribution(
+    dframe, x, y, hue, hue_order, palette,
+    title='', y_label='', x_label='',
+    y_lim=None, y_major_ticks=None, y_minor_ticks=None,
+    _log=False, log_y_lim=None,
+    save_name='', save_dir=None,
+    fig_dims=(7, 4), my_dpi=100, width=0.8,
+    close_plot=False, ax=None, fig=None,
+    show_points=True, **kwargs
+):
+    """Create distribution plot (boxplot with optional individual data points)."""
+
+    _fig, _ax = _setup_figure(ax, fig, fig_dims)
+
+    # Boxplot (summary of distribution)
+    sns.boxplot(
+        data=dframe,
+        x=x,
+        y=y,
+        hue=hue,
+        hue_order=hue_order,
+        palette=palette,
+        width=width,
+        showcaps=True,
+        boxprops={'alpha': .9},
+        fliersize=0,
+        whis=kwargs.get('whis', 1.5),
+        ax=_ax
+    )
+
+    # Optional individual data points
+    if show_points:
+        if kwargs.get('strip_color'):
+            palette = [kwargs['strip_color']] * len(hue_order)
+        sns.stripplot(
+            data=dframe.drop_duplicates(subset=[x, y, hue]),
+            x=x,
+            y=y,
+            hue=hue,
+            hue_order=hue_order,
+            palette=palette,
+            dodge=True,
+            alpha=kwargs.get('strip_alpha', 0.3),
+            size=5,
+            legend=False,
+            ax=_ax
+        )
+
+        # # Remove duplicate legend from stripplot
+        # _ax.legend_.remove()
+
+    _ax.yaxis.grid(which='both', linestyle='-', alpha=0.4)
+    _ax.set(ylim=y_lim)
+
+    if _log:
+        _ax.set_yscale('log')
+        _ax.set_ylim(log_y_lim)
+
+    _apply_labels(_ax, title, x_label, y_label, title_y=1.13)
+    _apply_ticks(_ax, y_major_ticks, y_minor_ticks, None, None)
+    _apply_legend(_ax, kwargs.get('legend', True), kwargs.get('legend_title', ''))
+
+    sns.despine(fig=_fig, ax=_ax, top=True, right=True)
+    _fig.set_dpi(my_dpi)
+    _fig.tight_layout()
+
+    _save_figure(_fig, save_dir, save_name, my_dpi)
+
+    if close_plot:
+        plt.close(_fig)
+
+    return _fig, _ax

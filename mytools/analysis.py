@@ -6,6 +6,35 @@ from mytools.list_tools import all_combinations
 from mytools.ratios import get_ori_ratio, geomean
 
 
+def get_ave_data(dframe, cond_list, dv):
+    if isinstance(dv, str):
+        dv = [dv]
+
+    grouped = dframe.groupby(cond_list)
+
+    summary = grouped.agg(
+        **{f'{v}_mean': (v, 'mean') for v in dv},
+        **{f'{v}_median': (v, 'median') for v in dv},
+        **{f'{v}_std': (v, 'std') for v in dv},
+        **{f'{v}_sem': (v, 'sem') for v in dv},
+        **{f'{v}_q25': (v, lambda x: x.quantile(0.25)) for v in dv},
+        **{f'{v}_q75': (v, lambda x: x.quantile(0.75)) for v in dv},
+    ).reset_index()
+
+    # Split column names into DV and measure
+    summary_long = summary.melt(id_vars=cond_list, var_name='dv_measure', value_name='value')
+
+    summary_long[['dv', 'measure']] = summary_long['dv_measure'].str.rsplit('_', n=1, expand=True)
+
+    summary_long = summary_long.drop(columns='dv_measure').pivot_table(
+        index=cond_list + ['measure'], columns='dv', values='value'
+    ).reset_index()
+
+    summary_long = summary_long.sort_values(by=cond_list + ['measure'])
+
+    return summary_long
+
+
 def get_mean_data(dframe, cond_list, dv):
     # Use groupby to calculate the statistics in one go
     grouped = dframe.groupby(cond_list)[dv]

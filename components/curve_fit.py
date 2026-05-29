@@ -1,18 +1,7 @@
-import itertools
-from itertools import repeat
-import random
 import numpy as np
-from scipy.linalg import hankel
-import pandas as pd
-import time
-import dill
-import multiprocessing as mp
 import os
 from scipy.optimize import curve_fit
 import pylab
-from datetime import datetime
-import matplotlib.pyplot as plt
-from numpy import nan
 from mytools.my_seaborn import load_seaborn_prefs
 
 
@@ -33,10 +22,7 @@ def fit_logistic(x, y, maxfev=1000, p0=None, bounds=(-np.inf, np.inf)):
     x = np.asarray(x)
     y = np.asarray(y)
     # determine params of logistic mod_orispace using least-squares method
-    popt, pcov = curve_fit(logistic_func, x, y,
-                           method='trf',
-                           maxfev=maxfev, p0=p0, bounds=bounds
-                           )
+    popt, pcov = curve_fit(logistic_func, x, y, method='trf', maxfev=maxfev, p0=p0, bounds=bounds)
     # popt, pcov = curve_fit(logistic_function, x_vals, y_vals, method='lm', maxfev=4000)
 
     thresh_opt = popt[0]
@@ -50,7 +36,7 @@ def fit_logistic(x, y, maxfev=1000, p0=None, bounds=(-np.inf, np.inf)):
 
     # namedtuple does not work with multiprocessing
     return {'x': x, 'y': y, 'threshold': thresh_opt, 'slope': slope_opt,
-            'threshold_std': thresh_std, 'slope_std': slope_std}
+            't_std': thresh_std, 'slope_std': slope_std}
 
 
 def plot_psychometric(x_axis, y_axis, x_fit_axis, y_fit_axis, threshold_value=None, title='', close_all=True,
@@ -101,3 +87,25 @@ def plot_psychometric(x_axis, y_axis, x_fit_axis, y_fit_axis, threshold_value=No
     fig.tight_layout()
     if _save is True or save_dir is not None:
         pylab.savefig(os.path.join(save_dir, f"{save_name}.png"), dpi=dpi)
+
+
+# def plot_psychometric(x_axis, y_axis, x_fit_axis, y_fit_axis, threshold_value, title='', close_all=True,
+#                       xlabel='', ylabel=''):
+#     threshold_idx = np.argmin(abs(x_fit_axis - threshold_value))
+#     if close_all:
+#         pylab.close('all')
+#         plt.close('all')
+#     else:
+#         pass
+#     pylab.figure()
+#     pylab.plot(x_axis, y_axis, 'o', label='data')
+#     pylab.plot(x_fit_axis, y_fit_axis, label='fit')
+#     pylab.ylim(0.5 - .01, 1.01)
+#     pylab.xlim(x_axis.min() - 0.01, x_axis.max() + 0.01)
+#     pylab.plot([threshold_value, threshold_value], [0, y_fit_axis[threshold_idx]], 'k--', alpha=0.3)
+#     pylab.plot([0, threshold_value], [y_fit_axis[threshold_idx], y_fit_axis[threshold_idx]], 'k--', alpha=0.3)
+#     pylab.xlabel(xlabel)
+#     pylab.ylabel(ylabel)
+#     pylab.title(title)
+#     pylab.legend(loc='best')
+#     # pylab.show()
