@@ -117,7 +117,7 @@ def run_objective_fn(param_values, param_names, objH, n_eval, n_level_reps=None,
     model_output, var_params = objH.run(param_values, param_names, n_eval)
 
     # The optimiser needs one scalar error value for each candidate parameter set.
-    total_error = model_output['overall_fit_error'].iloc[0]
+    total_error = model_output['total_error'].iloc[0]
     print(f"Error = {total_error:.4f}\n")
 
     # Keep the full output table for later pooling, filtering, and saving.
@@ -247,7 +247,7 @@ class ObjectiveFunction:
 
             # Store the error alongside the model output so each candidate fit can
             # later be ranked, filtered, and summarised.
-            model_output['overall_fit_error'] = task_error
+            model_output['task_fit_error'] = task_error
 
             all_model_output.append(model_output)
 
@@ -255,9 +255,11 @@ class ObjectiveFunction:
             print(f"\nTotal Error (log): {total_error:.4f}")
 
         all_model_output = pd.concat(all_model_output)
-        return all_model_output, var_params
 
-        # return total_error, error_output, variable_params, self.tasknames, self.decoders, all_model_scores, all_target_scores
+        # Store the actual objective value used for optimisation.
+        all_model_output['total_error'] = total_error
+
+        return all_model_output, var_params
 
 
 def optimize_parameters(objH, free_params, log_fractions=True, _noise_test=False, cond_labels=None,
@@ -331,12 +333,16 @@ def optimize_parameters(objH, free_params, log_fractions=True, _noise_test=False
     global all_fits_list
     all_fits_list = []  # Updated with each simulation within DE
 
-    N_runs = 3
-    popsize = 12
-    maxiter = 10
+    # ===================
+    # Change N_runs, popsize and maxiter to vary depth of optimisation (and consequently vary run time)
+    # ===================
 
-    # popsize = 2
-    # maxiter = 2
+    N_runs = 1
+    # popsize = 12
+    # maxiter = 10
+
+    popsize = 2
+    maxiter = 2
 
     # Independent seeds reduce the risk that a single unlucky DE run determines
     # the final parameter estimates.
@@ -361,7 +367,10 @@ def optimize_parameters(objH, free_params, log_fractions=True, _noise_test=False
     all_fits = pd.concat(all_fits)
 
     # Keep only the strongest candidate fits for the more expensive re-evaluation stage.
-    top_fits = all_fits[all_fits['overall_fit_error'] < all_fits['overall_fit_error'].quantile(0.05)]
+    n_candidate_sets = len(all_fits.drop_duplicates(subset=param_names))  # n_unique candidates
+    quantile_cutoff = 0.05 if n_candidate_sets > 50 else 0.2
+
+    top_fits = all_fits[all_fits['total_error'] <= all_fits['total_error'].quantile(quantile_cutoff)]
 
     # ---------------------
     # 3. Re-run top fits to obtain stable error estimates
@@ -401,9 +410,9 @@ def optimize_parameters(objH, free_params, log_fractions=True, _noise_test=False
     # for the same task, decoder, and condition. This guards against stochastic
     # outliers after re-simulation.
     top_fits = top_fits[
-        top_fits['overall_fit_error'] <= top_fits.groupby(
+        top_fits['total_error'] <= top_fits.groupby(
             ['task', 'decoder', 'cond']
-        )['overall_fit_error'].transform('median') * 2
+        )['total_error'].transform('median') * 2
         ].reset_index(drop=True)  # ungrouped, clean index
 
 
@@ -413,7 +422,11 @@ def optimize_parameters(objH, free_params, log_fractions=True, _noise_test=False
 
     # Use the median of robust, re-evaluated top fits as the final parameter
     # estimate. Fraction parameters are passed back on the log scale.
-    final_param_vals = np.log(top_fits[param_names].median().to_list())
+    final_param_vals = top_fits[param_names].median().to_list()
+
+    for idx, param_name in enumerate(param_names):
+        if param_name.endswith('_fraction'):
+            final_param_vals[idx] = np.log(final_param_vals[idx])
 
     # Run a high-precision final simulation and save the resulting model output.
     final_output = run_objective_fn(
@@ -477,11 +490,11 @@ if __name__ == '__main__':
 
     FIT_BOTH_TASKS = False  # Whether to fit simulations to both tasks at once
     FIT_AVERAGE = True  # Fit to average data
-    FIT_INDIVIDUAL = True  # Fit to each participant
+    FIT_INDIVIDUAL = False  # Fit to each participant
 
     MEASURE = 'OEI'  # 'OEI' or 'thresholds'
     CONTRAST = 100  # Contrast for orientation discrimination
-    TOTAL_N = 540  # ---Note--- Switch to N=180 for faster simulations
+    TOTAL_N = 180  # ---Note--- Switch to N=180 (or lower) for faster simulations
 
     ERROR_TYPE = 'lin'
     FREE_PARAM_IDS = {'n_fraction': 'Nf',
@@ -492,10 +505,16 @@ if __name__ == '__main__':
     # Generate every non-empty combination of anisotropy parameters. Each
     # combination defines a different model variant to be fitted.
     allFreeParams = ['n_fraction', 'fwhm_fraction', 'noise_scale_fraction', 'rmax_fraction']
-    freeParamCombos = []
 
-    for r in range(1, len(allFreeParams) + 1):
-        freeParamCombos.extend(itls.combinations(allFreeParams, r))
+    all_combinations = False
+
+    if all_combinations is True:
+        freeParamCombos = []
+
+        for r in range(1, len(allFreeParams) + 1):
+            freeParamCombos.extend(itls.combinations(allFreeParams, r))
+    else:
+        freeParamCombos = [allFreeParams]
 
     # Fit every model variant in turn.
     for FREE_PARAMS_CHOICE in freeParamCombos:
@@ -527,6 +546,8 @@ if __name__ == '__main__':
         else:
             print(f"Path already exists for {TITLE}. Skipping to next fit.")
             continue
+
+        os.makedirs(fits_dir, exist_ok=True)
 
         # --------------------------------------------------------------------
         # Simulation and behavioural-data configuration
@@ -756,6 +777,4 @@ if __name__ == '__main__':
                         # Run optimisation for this participant and decoder pairing.
                         optimize_parameters(objHandler, free_params, log_anisotropies, cond_labels=cond_labels,
                                             save_dir=pname_fit_dir)
-
-
 
