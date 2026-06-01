@@ -13,17 +13,18 @@ This project is split into two main sections.
 **Psychophysics/**
 - Contains the data analysis code for the behavioural data.
 - Please see the Jupyter notebooks contained within this folder:
-  - Psychophysics Analysis.ipynb.
-  - Psychophysics Graphs.ipynb.
+  - `Psychophysics Analysis.ipynb`.
+  - `Psychophysics Graphs.ipynb`.
 
-**Modelling/** 
-- This directory contains the model code and data analysis for the modelling data.
-- For step-by-step overview of the model flow, please see the Jupyter notebook:
-  - Modelling Flow.ipynb
-- To see how the model is used in practice, please see:
-  - PopulationCodingModel.py
+**Modelling eLife/** 
+- This directory contains the model code.
+- For an overview of the model architecture, please see:
+  - `Modelling Flow.ipynb`
+- To see how best-fitting parameters are obtained, please see:
+  - `ParamFits.py`
+  - Guidance in `parameter_fitting_walkthrough.ipynb`
 - To see how the model graphs are created in practice, please see:
-  - model_graphs.py
+  - `fitGraphs.py`
 
 **/mytools/** 
 <br>Contains custom Python code for data analysis 
