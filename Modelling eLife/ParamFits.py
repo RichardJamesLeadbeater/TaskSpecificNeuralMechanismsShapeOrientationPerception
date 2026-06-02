@@ -506,9 +506,9 @@ if __name__ == '__main__':
     # combination defines a different model variant to be fitted.
     allFreeParams = ['n_fraction', 'fwhm_fraction', 'noise_scale_fraction', 'rmax_fraction']
 
-    all_combinations = False
+    _all_combinations = True
 
-    if all_combinations is True:
+    if _all_combinations is True:
         freeParamCombos = []
 
         for r in range(1, len(allFreeParams) + 1):
@@ -575,7 +575,7 @@ if __name__ == '__main__':
         # Spatial-frequency conditions are labelled low, mid, and high. Each
         # condition has a different tuning width.
         cond_labels = ['low', 'mid', 'high']
-        sf_params = {'fwhm': [57.6, 30.4, 22.2]}
+        sf_params = {'fwhm': [56.2, 30.0, 22.0]}
 
         # --------------------------------------------------------------------
         # Free parameters

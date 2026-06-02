@@ -10,8 +10,8 @@ from mytools.symbols import model_symbols, misc_symbols, lowercase_greek_alphabe
 from mytools.dframe_tools import (index_dframe, change_dframe_labels, custom_sort)
 
 
-def build_label(sf, fwhm, n=None):
-    label = f"{sf} c/{deg}\n{m_sym['o_fwhm']}={fwhm}{deg}"
+def build_label(sf, bwidth, n=None):
+    label = f"{sf} c/{deg}\n{m_sym['o_hwhm']}={bwidth}{deg}"
     if n is not None:
         label += f"\nN={n}"
 
@@ -47,7 +47,7 @@ def make_decoder_pair_label(df):
 og_dir = os.getcwd()
 # data_dir = os.path.join(og_dir, 'fits')
 # data_dir = os.path.join(og_dir, 'n540_popsize12_maxiter10')
-data_dir = os.path.join(og_dir, 'n540_popsize12_maxiter10')
+data_dir = os.path.join(og_dir, 'customFitName')
 graph_dir = os.path.join(data_dir, 'graphs')
 params_dir = os.path.join(graph_dir, 'params')
 bestfit_dir = os.path.join(graph_dir, 'bestfit')
@@ -125,7 +125,7 @@ for fit_name in fit_names:
 
     i_data_dir = os.path.join(data_dir, fit_name)
 
-    both_tasks = True  # Toggle to show whether both tasks fit at once
+    both_tasks = False  # Toggle to show whether both tasks fit at once
 
     tasks_list = []
     fit_idx = 0
@@ -233,14 +233,14 @@ for fit_name in fit_names:
 
         # Filter out any outliers after re-evaluation
         task_raw_df = task_raw_df[
-            task_raw_df['overall_fit_error'] <= task_raw_df.groupby(['decoder', 'cond'])['overall_fit_error'].transform(
+            task_raw_df['total_error'] <= task_raw_df.groupby(['decoder', 'cond'])['total_error'].transform(
                 'median') * 2
             ].reset_index(drop=True)  # ungrouped, clean index
         #
         # Keep the top 50% (lowest errors) per decoder
         task_raw_df = task_raw_df[
-            task_raw_df['overall_fit_error'] <=
-            task_raw_df.groupby(['decoder', 'cond'])['overall_fit_error'].transform('quantile', 0.5)
+            task_raw_df['total_error'] <=
+            task_raw_df.groupby(['decoder', 'cond'])['total_error'].transform('quantile', 0.5)
             ].reset_index(drop=True)  # ungrouped, clean index
 
         task_raw_df = custom_sort(task_raw_df, cols=['task', 'decoder', 'cond'],
@@ -260,12 +260,6 @@ for fit_name in fit_names:
         ##########
         # PLOTS
         ##########
-        # bestfit_df = task_raw_df[
-        #     task_raw_df['overall_fit_error'] <= task_raw_df.groupby(['decoder', 'cond'])['overall_fit_error']
-        #     .transform('min')
-        #     ].reset_index(drop=True)  # ungrouped, clean index
-        #
-        # bestfit_df['measure'] = 'RAW'
 
         _PLOT_BESTFITS = True
         if _PLOT_BESTFITS is True:
@@ -315,16 +309,12 @@ for fit_name in fit_names:
         # )
 
         params_df = params_df[['task', 'decoder', 'cond', 'measure', 'OEI', 'cardinalT', 'obliqueT',
-                               'overall_fit_error', 'fit_num', 'anisotropy', 'anisotropy_value']]
+                               'total_error', 'fit_num', 'anisotropy', 'anisotropy_value']]
         params_df = params_df.drop_duplicates()
 
         params_raw = params_raw[['task', 'decoder', 'cond', 'OEI', 'cardinalT', 'obliqueT',
-                                 'overall_fit_error', 'fit_num', 'anisotropy', 'anisotropy_value']]
+                                 'total_error', 'fit_num', 'anisotropy', 'anisotropy_value']]
         params_raw = params_raw.drop_duplicates()
-
-        # params_opt = params_opt[['task', 'decoder', 'cond', 'OEI', 'cardinalT', 'obliqueT',
-        #                          'overall_fit_error', 'fit_num', 'anisotropy', 'anisotropy_value']]
-        # params_opt = params_opt.drop_duplicates()
 
         # TABLE OF PARAMETER VALUES
         # Plot params of each fit as bar chart (x=fit_num, hue=param, y=bobyqa)
@@ -494,11 +484,11 @@ for fit_name in fit_names:
             ax2 = axes[1]
 
             # AX1
-            ylim_mse = (0, task_raw_df['overall_fit_error'].max() * 1.1)
+            ylim_mse = (0, task_raw_df['total_error'].max() * 1.1)
             plot_line(
                 task_raw_df,
                 x='decoder',
-                y='overall_fit_error', hue='decoder',
+                y='total_error', hue='decoder',
                 dodge=True, marker_size=8, linewidth=0.6, markers=markers,
                 palette='colorblind', title='Mean MSE', y_label="Mean MSE", x_label='Decoder',
                 legend=True, y_lim=ylim_mse, close_plot=False, tight_layout=True,
@@ -703,7 +693,7 @@ for row, i_task in enumerate(allsims['task'].unique()):
             ax.axis('off')
             continue
 
-        plot_bar(plot_df, 'fitname', 'overall_fit_error',
+        plot_bar(plot_df, 'fitname', 'total_error',
                  hue='fitname',
                  palette='colorblind',
                  title=f"{i_decoder}",

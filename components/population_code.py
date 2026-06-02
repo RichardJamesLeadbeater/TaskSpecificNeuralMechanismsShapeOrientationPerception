@@ -322,9 +322,11 @@ class PopulationCode:
         prefs_info = self.gen_prefs_distrib(scale=chosen_scale, size=100000)
 
         # If actual propn_cardinal substantially deviates from desired, then print
-        if abs(g_params['propn_cardinal'] - prefs_info['propn_cardinal']) >= 0.015:
-            print(f"Desired propn_cardinal = {g_params['propn_cardinal']:.2f}"
-                  f"\nActual propn_cardinal = {prefs_info['propn_cardinal']:.2f}")
+        _print_actual = False
+        if _print_actual is True:
+            if abs(g_params['propn_cardinal'] - prefs_info['propn_cardinal']) >= 0.015:
+                print(f"Desired propn_cardinal = {g_params['propn_cardinal']:.2f}"
+                      f"\nActual propn_cardinal = {prefs_info['propn_cardinal']:.2f}")
 
         # Assign to model
         (prefs, prefs_idx) = find_nearest(tiling, prefs_info['prefs'])
