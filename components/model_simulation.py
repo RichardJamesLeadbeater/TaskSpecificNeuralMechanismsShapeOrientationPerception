@@ -124,7 +124,7 @@ class ParameterManager:
 class ModelSimulator:
     """Handles model creation and simulation."""
 
-    def __init__(self, default_params, sf_labels, sf_params, log_anisotropies, PRINTS=False):
+    def __init__(self, default_params, sf_labels, sf_params, log_anisotropies=True, PRINTS=False):
         self.default_params = default_params
         self.sf_labels = sf_labels
         self.sf_params = sf_params
@@ -183,6 +183,7 @@ class ModelSimulator:
         sim_params = {**self.default_params}  # Default params
 
         sim_variable_params = sim_variable_params.copy()  # <-- make local copy
+
         if self.log_anisotropies is True:
             # Convert back to ratio for consistency with model code
             for param, val in sim_variable_params.items():
@@ -196,7 +197,8 @@ class ModelSimulator:
         # print(f"Simulation params: {variable_params}")
         formatted_params = {k: str((round(v, 2)) if isinstance(v, float) else v)
                             for k, v in sim_variable_params.items()}
-        self.PRINTS = True
+
+        self.PRINTS = False
         if self.PRINTS is True:
             print(f"\nSimulation params: {formatted_params}")
 

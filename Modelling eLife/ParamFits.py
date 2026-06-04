@@ -51,7 +51,7 @@ def run_de(objH, param_names, bounds, popsize, maxiter, seed=None):
     # Differential evolution repeatedly proposes candidate parameter vectors.
     # Each vector is passed to run_objective_fn, which returns a single error
     # value. The optimiser then searches for the vector that minimises this error.
-    de_result = differential_evolution(
+    de_fit_full = differential_evolution(
         # lambda x: run_objective_fn(
         #     x, param_names, objH, n_eval=2, n_level_reps=100, append_all_fits=True
         # ),
@@ -68,13 +68,13 @@ def run_de(objH, param_names, bounds, popsize, maxiter, seed=None):
     # Convert the optimiser's best parameter vector into a labelled dictionary.
     # Fraction parameters were fitted on a log scale, so convert them back to
     # linear ratio values for reporting.
-    opt_fit = {_k: _v for _k, _v in zip(param_names, de_result.x)}
+    opt_fit = {_k: _v for _k, _v in zip(param_names, de_fit_full.x)}
     for k, v in opt_fit.items():
         v = np.exp(v) if k.endswith('_fraction') else v
         opt_fit[k] = np.round(v, 5)
 
     print(f"Best fitting parameters: {opt_fit}")
-    print(f"Best fitting objective (i.e. error): {de_result.fun}")
+    print(f"Best fitting objective (i.e. error): {de_fit_full.fun}")
     print(f"{'=' * 60}\n")
 
     # Label each saved fit with the seed that produced it. This makes it possible
@@ -82,7 +82,7 @@ def run_de(objH, param_names, bounds, popsize, maxiter, seed=None):
     global all_fits_list
     for sim_idx in range(len(all_fits_list)):
         all_fits_list[sim_idx]['seed'] = seed
-    de_result = {'diff_evol': de_result, 'all_fits': all_fits_list, 'seed': seed}
+    de_result = {'diff_evol': de_fit_full, 'all_fits': all_fits_list, 'seed': seed}
 
     return de_result
 
@@ -262,8 +262,7 @@ class ObjectiveFunction:
         return all_model_output, var_params
 
 
-def optimize_parameters(objH, free_params, log_fractions=True, _noise_test=False, cond_labels=None,
-                        save_dir=''):
+def optimize_parameters(objH, free_params, save_dir=''):
     """
     Optimise model parameters to minimise the objective function.
 
@@ -283,37 +282,6 @@ def optimize_parameters(objH, free_params, log_fractions=True, _noise_test=False
     param_names = list(free_params.keys())
     initial_values = [free_params[k]['x0'] for k in param_names]
     bounds = [free_params[k]['bounds'] for k in param_names]
-
-
-    def objective_noise_test(n_sims=10, anisotropy_vals=None, nz_n_level_reps=None):
-        """
-        Evaluate the objective function repeatedly at the same parameter values.
-
-        This gives a sense of how much the stochastic simulation changes the MSE
-        even when the parameters are fixed.
-        """
-        anisotropy_vals = anisotropy_vals if anisotropy_vals is not None else initial_values
-        objH_copy = deepcopy(objH)
-        objH_copy.config['n_level_reps'] = nz_n_level_reps
-
-        n_sims = 10
-        for i_n_level_reps in [20]:
-            for i_n_eval in [5, 10, 20, 40, 80, 160, 320, 640, 1280]:
-                print(f"n_level_reps: {i_n_level_reps}")
-                print(f"n_eval: {i_n_eval}")
-                results = [objH_copy.run(anisotropy_vals, param_names, n_eval=i_n_eval) for _ in range(n_sims)]
-                MSE = np.asarray([_t[0] for _t in results])
-                print(
-                    f">>> NOISE TEST\n"
-                    f"> {n_sims} simulations\n"
-                    f"> Mean MSE = {np.mean(MSE):.5f}\n"
-                    f"> 95th quantile = {np.quantile(MSE, 0.95):.5f}\n"
-                    f"> Mean abs deviation from mean MSE = {np.mean(abs(MSE - np.mean(MSE))):.5f}\n"
-                )
-
-    _noise_test = False
-    if _noise_test is True:
-        objective_noise_test(n_sims=500, anisotropy_vals=np.log([1.71, .31, 1.52, 3.01]))  # How much model varies with fixed params
 
     if PRINTS is True:
         print(f"\n{'=' * 60}\nStarting optimization with differential evolution (DE)\n{'=' * 60}")
@@ -539,7 +507,7 @@ if __name__ == '__main__':
         og_dir = os.getcwd()
         beh_data_dir = os.path.join(og_dir, 'beh_data')
 
-        fits_dir = os.path.join(og_dir, 'customFitName', TITLE)
+        fits_dir = os.path.join(og_dir, 'test', TITLE)
 
         if not os.path.exists(fits_dir):
             os.makedirs(fits_dir)

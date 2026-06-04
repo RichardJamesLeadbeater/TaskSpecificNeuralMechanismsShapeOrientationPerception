@@ -1,7 +1,7 @@
 ## README
 
 ### 1. General Information
-- Title of Dataset: Task-specific neural mechanisms shape human orientation perception
+- Title of Dataset: Task-specific neural mechanisms underlie biases in human orientation perception
 - Author(s): XXX
 - Date of Data Collection: Psychophysics data in 2021 and 2024
 - Geographic Location: XXX
@@ -49,9 +49,6 @@ This project is split into two main sections.
     - CCO
 - Citation request
     - Please cite the associated paper if you reuse this dataset.
-- Limitations or known issues
-    - Two participants did not complete the 8 c/deg condition in the behavioural experiment.
-    - There are no other issues to the best of the authors' knowledge.
 
 ### 6. Software Requirements
 - Python version 3.10.0

@@ -138,16 +138,25 @@ def generate_cosine(x, n_cycles=1, inverse=False):
     return y
 
 
-def generate_vonmises(x, prefs, kappa, input_format='rad'):
+def generate_vonmises(x, prefs, kappa, input_format='rad', normalise=False):
     if input_format == 'deg':  # orispace in radians
         x = np.radians(x)
         prefs = np.radians(prefs)
+
     # see Swindale (1998) for clear equations and HWHM calculation
     p1 = kappa.T * (np.cos(2 * (x[:, nax] - prefs)))
     tunings = np.exp(p1).T
-    normalisation_constant = 2 * np.pi * special.i0(kappa)
-    tunings = tunings / normalisation_constant
+
+    # TEST between 0 and 1
+    tunings2 = np.exp(p1 - 1).T
+
+    # Normalise to make area under each curve equal to 1 over the chosen angular domain
+    if normalise is True:
+        normalisation_constant = np.pi * special.i0(kappa)  # multiply by 2 if angular space between 0 & 360 deg
+        tunings = tunings / normalisation_constant
+
     # plt.plot(tunings[::20, :].T)
+
     return tunings
 
 

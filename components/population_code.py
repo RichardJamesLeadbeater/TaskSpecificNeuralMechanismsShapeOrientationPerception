@@ -221,6 +221,7 @@ class PopulationCode:
         # Set distribution for params and prefs
         for i_dist in ['pref_distrib', 'param_distrib']:
             distrib = self.global_params[i_dist]
+
             if any(_i == distrib for _i in ['cos', 'vonmises']):
                 if g_params[i_dist] == 'cos':
                     curve = generate_cosine(tiling, n_cycles=n_cycles)
@@ -228,6 +229,7 @@ class PopulationCode:
                 elif g_params == 'vonmises':
                     curve = generate_vonmises(tiling, pref=0, sigma=7.5, n_cycles=n_cycles, input_format='deg')
                     curve = normalise(curve, 0, 1)
+
                 o_lim = 0  # proportion of cycle at which oblique cuts off (e.g., 0.5 = half-wave rectified)
                 c_lim = 1
                 curve[curve < o_lim] = o_lim  # obliques
@@ -366,24 +368,26 @@ class PopulationCode:
             sigma = fwhm / 2.3548
             sigma = arr([sigma]).transpose()  # 1 val per ori_pref
             tunings = generate_gaussian(tiling, self.prefs, sigma)  # gaussian tuning for each pref
+
         # Wrapped Gaussian tuning
         elif g_params['tuning_dist'] == 'gaussian_wrapped':
             sigma = fwhm / 2.3548
             sigma = arr([sigma]).transpose()  # 1 val per ori_pref
             tunings = generate_wrapped_gaussian(tiling, self.prefs, sigma, period=180, wrap_range=8)
+
         # Von Mises tuning
         elif g_params['tuning_dist'] == 'von_mises':
-            rad_fwhm = np.radians(fwhm)  # must be in radians
-            kappa = np.log(0.5) / (np.cos(rad_fwhm) - 1)  # Swindale (1998)
+            kappa = np.log(0.5) / (np.cos(np.radians(fwhm)) - 1)  # Swindale (1998)
             kappa = kappa[:, nax]  # 1 val per ori_pref
             tunings = generate_vonmises(tiling, self.prefs, kappa, input_format='deg')
+
         else:
             return None
+
         # Normalise so each tuning curve (row) has min=0 and max=1
-        cols_idcs = np.argmax(tunings, axis=1)
-        rows_idcs = np.arange(0, len(cols_idcs), 1)
-        max_vals = tunings[rows_idcs, cols_idcs]
+        max_vals = np.max(tunings, axis=1)
         tunings = tunings / arr([max_vals]).T
+
         # tunings = tunings / my_asarray([max_vals]).transpose()  # normalise to 1
         # Set maximum firing rate to rmax
         tunings = (tunings.T * param_distribs['rmax']).T  # normalise to rmax
