@@ -59,12 +59,11 @@ ori_labels = ['0$^\circ$', '90$^\circ$', '45$^\circ$', '135$^\circ$']  # (obliqu
 # Which plots
 _plot_thresholds = True
 _plot_ratios = True
-_plot_indiv = False  # Plot graphs for each individual participant
 _plot_multifig = True
 
 # Plot settings for each experiment
 plot_settings = {
-    'line_alpha': 0.8, 'title_y': 1.02, 'xlabel': f"Spatial frequency ({sym['cpd']})",
+    'line_alpha': 0.8, 'title_y': 1.02, 'xlabel': f"Spatial frequency (cpd)",
     'dpi': 600, 'legend': True,
     # ylims
     'ratio_ylim': (0, 4), 'ratio_log_ylim': (0.95, 10),
@@ -76,27 +75,37 @@ for i_exp in exp_info:
             exp_info[i_exp][key] = plot_settings[key]
 
 for i_exp in list(exp_info):
+
+    # Labels consistent with modelling data
+    task = ''
+    if i_exp == 'Contrast Detection':
+        task = 'con_det'
+    elif i_exp == 'Orientation Discrimination':
+        task = 'ori_dis'
+
     # Settings for this experiment
     i_info = exp_info[i_exp]
+
     # Data paths
     exp_dir = i_info['path']
-    raw_dir = os.path.join(exp_dir, 'raw')
-    sum_dir = os.path.join(exp_dir, 'summary')
-    ratio_dir = os.path.join(exp_dir, 'ratio')
+    raw_dir = os.path.join(exp_dir, 'raw_data')
+    analysis_dir = os.path.join(exp_dir, 'analysis')
+
     # Graph paths
     gph_dir = os.path.join(exp_dir, 'graphs')
     indiv_gph_dir = os.path.join(gph_dir, 'indiv')
     means_gph_dir = os.path.join(gph_dir, 'means')
     ratio_gph_dir = os.path.join(gph_dir, 'ratios')
+
     for i_dir in [gph_dir, indiv_gph_dir, means_gph_dir, ratio_gph_dir]:
         if not os.path.exists(i_dir):
             os.makedirs(i_dir)
 
     # Load data
     raw_data = pd.read_csv(os.path.join(raw_dir, 'raw_anonymised.csv'))
-    sum_data = pd.read_csv(os.path.join(sum_dir, 'summary.csv'))
-    ratio_data = pd.read_csv(os.path.join(ratio_dir, 'ratios.csv'))
-    geomean_r_data = pd.read_csv(os.path.join(ratio_dir, 'geomean_ratios.csv'))
+    sum_data = pd.read_csv(os.path.join(analysis_dir, f'summary_{task}.csv'))
+    ratio_data = pd.read_csv(os.path.join(analysis_dir, f'ratios_{task}.csv'))
+    geomean_r_data = pd.read_csv(os.path.join(analysis_dir, f'geomean_ratios_{task}.csv'))
 
     # Change ori labels for each dataset
     raw_data, sum_data = [
@@ -115,12 +124,8 @@ for i_exp in list(exp_info):
     blank_data = pd.DataFrame(blank_data)
     raw_data = pd.concat([raw_data, blank_data])
 
-    # Thesis - 2 vs 16 c/deg
-    _thesis = False
-    if _thesis is True:
-        sf_list = [2, 16]
-    else:
-        sf_list = [2, 8, 16]
+    sf_list = [2, 8, 16]
+
     raw_data = index_dframe(raw_data, 'spatial frequency', sf_list, 'or')
     sum_data = index_dframe(sum_data, 'spatial frequency', sf_list, 'or')
     ratio_data = index_dframe(ratio_data, 'spatial frequency', sf_list, 'or')
@@ -280,7 +285,7 @@ for i_exp in list(exp_info):
                                  legend=False, title=None, ci=None, palette=[[0.3] * 3],
                                  markers=["D"], line_width=2,
                                  y_label=i_ratio, ylabel_pad=6, y_lim=i_info['ratio_ylim'],
-                                 x_label=f"Spatial frequency ({sym['cpd']})",
+                                 x_label=f"Spatial frequency (cpd)",
                                  x_type='cat', alpha=1,
                                  ax=r_axes[1]
                                  )

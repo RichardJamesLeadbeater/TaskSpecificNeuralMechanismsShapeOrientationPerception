@@ -12,9 +12,8 @@ This project is split into two main sections.
 
 **Psychophysics/**
 - Contains the data analysis code for the behavioural data.
-- Please see the Jupyter notebooks contained within this folder:
-  - `Psychophysics Analysis.ipynb`.
-  - `Psychophysics Graphs.ipynb`.
+- To analyse the behavioural data, please run `analysis.py`
+- To create graphs, please run `graphs.py`
 
 **Modelling eLife/** 
 - This directory contains the model code.

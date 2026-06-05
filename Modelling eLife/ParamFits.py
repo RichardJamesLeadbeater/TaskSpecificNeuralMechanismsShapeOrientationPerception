@@ -37,57 +37,51 @@ from components.model_simulation import (run_contrast_detection, run_orientation
 # Stores the full model output for every candidate parameter set evaluated during
 # optimisation. This is reset at key stages so that each stage only retains the
 # fits relevant to that stage.
-all_fits_list = []
+de_simulations = {
+    '1. Initial': [],
+    '2. Rerun': []
+}
 
-def run_de(objH, param_names, bounds, popsize, maxiter, seed=None):
-    """
-    Run one differential-evolution optimisation.
 
-    This function performs one global search over the parameter space using a
-    specified random seed. It returns both the best-fitting parameter set found
-    by this search and all model fits evaluated during the search.
-    """
-
-    # Differential evolution repeatedly proposes candidate parameter vectors.
-    # Each vector is passed to run_objective_fn, which returns a single error
-    # value. The optimiser then searches for the vector that minimises this error.
-    de_fit_full = differential_evolution(
-        # lambda x: run_objective_fn(
-        #     x, param_names, objH, n_eval=2, n_level_reps=100, append_all_fits=True
-        # ),
+def run_de(objH, param_names, bounds, popsize, maxiter, label, seed=None):
+    """Run differential-evolution search."""
+    de_fit = differential_evolution(
         lambda x: run_objective_fn(
-            x, param_names, objH, n_eval=1, n_level_reps=50, append_all_fits=True
+            x,
+            param_names,
+            objH,
+            n_eval=1,
+            n_level_reps=50,  # Number of repeats for each point along the psychometric function
+            label=label,
+            seed=seed
         ),
-        bounds=bounds,
-        popsize=popsize,
-        maxiter=maxiter,
+        bounds=bounds,  # Search within bounded parameter range
+
+        popsize=popsize,  # Controls search diversity by setting how many candidate solutions are used per parameter.
+        maxiter=maxiter,  # Maximum number of generations/iterations before stopping.
+
         polish=False,
         seed=seed
     )
 
-    # Convert the optimiser's best parameter vector into a labelled dictionary.
-    # Fraction parameters were fitted on a log scale, so convert them back to
-    # linear ratio values for reporting.
-    opt_fit = {_k: _v for _k, _v in zip(param_names, de_fit_full.x)}
-    for k, v in opt_fit.items():
-        v = np.exp(v) if k.endswith('_fraction') else v
-        opt_fit[k] = np.round(v, 5)
+    # --- PRINT RESULTS --- #
+    # Anisotropy values back to linear scale for fractional free parameters - for print only
+    _PRINT = True
+    if _PRINT:
+        print_fit = {_k: _v for _k, _v in zip(param_names, de_fit.x)}
+        for k, v in print_fit.items():
+            print_fit[k] = np.exp(v) if k.endswith('_fraction') else v
 
-    print(f"Best fitting parameters: {opt_fit}")
-    print(f"Best fitting objective (i.e. error): {de_fit_full.fun}")
-    print(f"{'=' * 60}\n")
+        print(f"\nBest fitting parameters: {print_fit}")
+        print(f"\nBest fitting objective (i.e. error): {de_fit.fun}")
+        print(f"\n{'=' * 60}\n")
 
-    # Label each saved fit with the seed that produced it. This makes it possible
-    # to trace each candidate solution back to its independent DE run.
-    global all_fits_list
-    for sim_idx in range(len(all_fits_list)):
-        all_fits_list[sim_idx]['seed'] = seed
-    de_result = {'diff_evol': de_fit_full, 'all_fits': all_fits_list, 'seed': seed}
+    de_results = (de_fit, de_simulations)
 
-    return de_result
+    return de_results
 
 
-def run_objective_fn(param_values, param_names, objH, n_eval, n_level_reps=None, append_all_fits=False,
+def run_objective_fn(param_values, param_names, objH, n_eval, label='', seed=None, n_level_reps=None,
                      _return_output=False):
     """
     Evaluate one candidate parameter vector.
@@ -116,14 +110,20 @@ def run_objective_fn(param_values, param_names, objH, n_eval, n_level_reps=None,
     # behavioural target values.
     model_output, var_params = objH.run(param_values, param_names, n_eval)
 
+    model_output['seed'] = seed
+
     # The optimiser needs one scalar error value for each candidate parameter set.
     total_error = model_output['total_error'].iloc[0]
     print(f"Error = {total_error:.4f}\n")
 
-    # Keep the full output table for later pooling, filtering, and saving.
-    if append_all_fits is True:
-        global all_fits_list
-        all_fits_list.append(model_output)
+    # Save full output if this candidate should be retained for later analysis.
+    if label:
+        global de_simulations
+
+        if de_simulations.get(label) is None:
+            de_simulations[label] = []
+
+        de_simulations[label].append(model_output)
 
     # During optimisation, return the scalar error. During final evaluation, return
     # the full model output, so it can be saved.
@@ -138,7 +138,9 @@ class ObjectiveFunction:
 
     def __init__(self, simulator, tasknames, decoders, measure, config, error_type='mse', task_weights=None,
                  PRINTS=True):
+
         self.simulator = simulator
+
         self.tasknames = [tasknames] if not isinstance(tasknames, (list, tuple)) else tasknames
         self.decoders = [decoders] if not isinstance(decoders, (list, tuple)) else decoders
 
@@ -146,6 +148,7 @@ class ObjectiveFunction:
         self.measure = measure
         self.config = config
         self.error_type = error_type
+
         self.task_weights = task_weights or {_t: 1.0 for _t in self.tasknames}
 
         self.PRINTS = PRINTS
@@ -153,11 +156,11 @@ class ObjectiveFunction:
     def run(self, param_values, param_names, n_eval=1):
         """
         Compute error between model predictions and target data.
+        This is the central scoring routine used by the optimiser.
 
-        This is the central scoring routine used by the optimiser. For each
-        task/decoder pair, it simulates model behaviour, extracts the requested
+        For each task/decoder pair, it simulates model behaviour, extracts the requested
         behavioural measure, compares it with the target data, and accumulates a
-        weighted error.
+        weighted error (default is unweighted).
         """
 
         # Convert the optimiser's raw parameter array into a labelled dictionary.
@@ -165,54 +168,30 @@ class ObjectiveFunction:
         var_params = {name: value for name, value in zip(param_names, param_values)}
 
         total_error = 0
-        all_model_scores = {}
-        all_target_scores = {}
-        error_output = {}
-
         all_model_output = []
 
-        # Each objective call can involve either one task/decoder pair or several
-        # pairs if the model is being fitted jointly across tasks.
+        # Looping through tasks and decoders enables fitting shared model to multiple conditions
+
+        # Conversion of fractional free parameters to desired scale is handled by ModelSimulator
+
         for i_task, i_decoder in zip(self.tasknames, self.decoders):
-            # Run simulation
-            tic = time.time()
 
-            # Package simulation arguments. The repeated-list structure makes it
-            # easy to restore repeated simulations or multiprocessing later.
-            n_repeats_placeholder = 1
-            args_list = [
-                (i_task, i_decoder, self.measure, var_params, self.config, n_eval)
-                for _ in range(n_repeats_placeholder)
-            ]
+            results = self.simulator.simulate(
+                i_task,
+                i_decoder,
+                self.measure,
+                var_params,
+                self.config,
+                n_eval
+            )
 
-            _multiprocessing = False
-            if _multiprocessing is True:
-                if self.PRINTS is True:
-                    print(f">>> Multiprocessing {i_task} over {n_repeats_placeholder} repeats")
-                with Pool(processes=4) as pool:
-                    results = pool.starmap(self.simulator.simulate, [(_args) for _args in args_list])
-            else:
-                if self.PRINTS is True:
-                    print(f">>> Running {i_task} over {n_repeats_placeholder} repeats")
-                # Debug-friendly version: runs sequentially.
-                results = [self.simulator.simulate(*_args) for _args in args_list]
-
-            # Combine simulator outputs into one tidy table for scoring and saving.
-            model_output = pd.concat([pd.DataFrame(_r) for _r in results])
+            model_output = pd.DataFrame(results)
 
             # Record which parameters were free in this model variant.
             for fp_idx, free_param in enumerate(param_names):
                 model_output[f"freeParam_{fp_idx}"] = free_param
 
-            # model_output = pd.DataFrame(results)
-
-            if self.PRINTS is True:
-                print(f"\n####################"
-                      f"\n{time.time() - tic:.3f}s"
-                      f"\n####################")
-
-            # Convert model output into the same vector format as the behavioural
-            # target data before computing the error.
+            # Convert model output into the same format as behavioural target data
             if self.measure == 'thresholds':
                 model_scores = []
                 for c, o in zip(model_output['cardinalT'], model_output['obliqueT']):
@@ -223,33 +202,26 @@ class ObjectiveFunction:
             # Behavioural target values for the current task and measure.
             target_scores = np.hstack(self.config[self.measure][i_task])  # Behavioural data
 
-            # Compute the task-level error. Log error compares proportional
-            # differences; linear error compares raw differences.
+            # --- Compute the fit error (MSE) --- #
+            # Log error compares proportional differences;
             if self.error_type == 'log':
                 task_error = np.mean((np.log(model_scores) - np.log(target_scores)) ** 2)
             else:
-                # MSE
+                # Linear error compares raw differences.
                 task_error = np.mean((model_scores - target_scores) ** 2)
 
-            # Apply task weighting before adding this task to the total objective.
-            # Equal weights are used unless specified otherwise.
+            # Apply task weighting before adding this task's error to the total objective.
             weighted_error = task_error * self.task_weights[i_task]
+
+            model_output['fit_error'] = weighted_error
+            all_model_output.append(model_output)
+
             total_error += weighted_error
 
             if self.PRINTS is True:
                 print(f"\n{i_task} & {i_decoder}")
                 print(f"  Target: {np.round(target_scores, 3)}")
                 print(f"  Model:  {np.round(model_scores, 3)}")
-
-            all_model_scores[i_task] = model_scores
-            all_target_scores[i_task] = target_scores
-            error_output[i_task] = task_error
-
-            # Store the error alongside the model output so each candidate fit can
-            # later be ranked, filtered, and summarised.
-            model_output['task_fit_error'] = task_error
-
-            all_model_output.append(model_output)
 
         if self.PRINTS is True:
             print(f"\nTotal Error (log): {total_error:.4f}")
@@ -262,7 +234,7 @@ class ObjectiveFunction:
         return all_model_output, var_params
 
 
-def optimize_parameters(objH, free_params, save_dir=''):
+def optimize_parameters(objH, free_params, config, save_dir=''):
     """
     Optimise model parameters to minimise the objective function.
 
@@ -276,7 +248,6 @@ def optimize_parameters(objH, free_params, save_dir=''):
     7. Use the median of the surviving parameters for the final model fit.
     8. Save the final output, selected fits, and summary statistics.
     """
-
     # scipy expects ordered arrays, whereas the script defines parameters in a
     # labelled dictionary. These lists keep names, initial values, and bounds aligned.
     param_names = list(free_params.keys())
@@ -298,58 +269,57 @@ def optimize_parameters(objH, free_params, save_dir=''):
     # ------------------------
     # 1. Run DE 3 times
     # ------------------------
-    global all_fits_list
-    all_fits_list = []  # Updated with each simulation within DE
 
     # ===================
     # Change N_runs, popsize and maxiter to vary depth of optimisation (and consequently vary run time)
     # ===================
 
-    N_runs = 1
-    # popsize = 12
-    # maxiter = 10
+    # define random seeding
+    seeds = np.random.choice(1000, size=config['N_runs'], replace=False)
 
-    popsize = 2
-    maxiter = 2
+    # Prepare lists of arguments for each DE search.
+    args_list = [
+        (objH, param_names, bounds, config['popsize'], config['maxiter'], '1. Initial', seed
+         ) for seed in seeds
+    ]
 
-    # Independent seeds reduce the risk that a single unlucky DE run determines
-    # the final parameter estimates.
-    seeds = np.random.choice(1000, size=N_runs, replace=False)
+    # Main script uses multiprocessing for speed (switch to False if this causes errors)
+    _use_multiprocessing = True
 
-    # Prepare arguments for multiprocessing. Each worker runs one independent DE search.
-    args_list = [(objH, param_names, bounds, popsize, maxiter, seed) for seed in seeds]
-
-    with Pool(processes=min(N_runs, 3)) as pool:
-        all_de_results = pool.starmap(run_de, args_list)
+    if _use_multiprocessing:
+        with Pool(processes=min(config['N_runs'], 3)) as pool:
+            all_de_results = pool.starmap(run_de, args_list)
+    else:
+        # Can only access global variable w/o multiprocessing
+        all_de_results = [
+            run_de(*args)
+            for args in args_list
+        ]
 
     # Collect all candidate fits from all independent DE searches.
-    all_fits = []
-    for de_run in all_de_results:
-        all_fits.extend(de_run['all_fits'])
+    global de_simulations
+    de_simulations = all_de_results[0][1]  # Update global variable
+
+    fits_initial = pd.concat(de_simulations['1. Initial'])
+
+    print(f"\n3. Total number of model iterations within optimisation routine: {len(fits_initial)}")
 
     # ------------------
     # 2. Pool top 5% of fits
     # ------------------
-
-    # Gather every candidate evaluation from all DE runs into one table.
-    all_fits = pd.concat(all_fits)
-
     # Keep only the strongest candidate fits for the more expensive re-evaluation stage.
-    n_candidate_sets = len(all_fits.drop_duplicates(subset=param_names))  # n_unique candidates
+    n_candidate_sets = len(fits_initial.drop_duplicates(subset=param_names))  # n_unique candidates
+
     quantile_cutoff = 0.05 if n_candidate_sets > 50 else 0.2
 
-    top_fits = all_fits[all_fits['total_error'] <= all_fits['total_error'].quantile(quantile_cutoff)]
+    top_fits = fits_initial[fits_initial['total_error'] <= fits_initial['total_error'].quantile(quantile_cutoff)]
 
     # ---------------------
     # 3. Re-run top fits to obtain stable error estimates
     # ---------------------
-    all_fits_list = []  # Reset so this list only stores re-evaluated top fits.
-    rerun = []
+    print(f"\n>>> 5. re-run the top fits with more repetitions")
 
-    print(len(top_fits))
-
-    # Re-evaluate each unique candidate parameter set. The first condition is used
-    # as an anchor because each parameter set appears across multiple conditions.
+    # Use info from a single SF condition to prevent repeated simulations (shared fits across SF)
     for idx, row in top_fits[top_fits['cond'] == top_fits['cond'].tolist()[0]].iterrows():
 
         # Extract parameter values from the selected row.
@@ -360,41 +330,51 @@ def optimize_parameters(objH, free_params, save_dir=''):
         for _idx, _lbl in enumerate(param_names):
             vals[_idx] = np.log(vals[_idx]) if _lbl.endswith('_fraction') else vals[_idx]
 
-        # Re-simulate selected candidates using more repetitions for a more stable
-        # estimate of their error.
-        result = run_objective_fn(
-            vals, param_names, objH, n_eval=1, n_level_reps=500, append_all_fits=True
+        # Re-simulate selected candidates w/ more reps for a more stable error estimate
+        # Updates global variables
+        run_objective_fn(
+            vals,
+            param_names,
+            objH,
+            n_eval=1,
+            n_level_reps=500,
+            label='2. Rerun',
         )
-        rerun.append(result)
 
     # ---------------------
     # 4. Filter out any outliers after re-evaluation
     # ---------------------
 
-    # Replace the original top fits with their re-evaluated outputs.
-    top_fits = pd.concat(all_fits_list) if isinstance(all_fits_list, list) else all_fits_list
-
     # Remove fits whose re-evaluated error is much larger than the typical error
-    # for the same task, decoder, and condition. This guards against stochastic
-    # outliers after re-simulation.
+
+    # Replace the original top fits with their re-evaluated outputs.
+    top_fits = pd.concat(de_simulations['2. Rerun'])
+
+    # Remove fits with error values > 2x the median error for that condition
     top_fits = top_fits[
         top_fits['total_error'] <= top_fits.groupby(
             ['task', 'decoder', 'cond']
         )['total_error'].transform('median') * 2
         ].reset_index(drop=True)  # ungrouped, clean index
 
-
     # -----------------------
-    # 5. Use median to obtain final parameter estimates
+    # 5. take the median parameter values from the retained fits;
     # -----------------------
 
-    # Use the median of robust, re-evaluated top fits as the final parameter
-    # estimate. Fraction parameters are passed back on the log scale.
+    # Use median of re-evaluated top fits as final parameter estimate.
     final_param_vals = top_fits[param_names].median().to_list()
 
+    print(f"\nFinal parameter values: {np.round(final_param_vals, 3)}"
+          f"\nfor free parameters: {free_params.keys()}")
+
+    # Fraction parameters converted back to log scale.
     for idx, param_name in enumerate(param_names):
         if param_name.endswith('_fraction'):
             final_param_vals[idx] = np.log(final_param_vals[idx])
+
+    # ----------------------
+    # 6. run and save the final model fit.
+    # ----------------------
 
     # Run a high-precision final simulation and save the resulting model output.
     final_output = run_objective_fn(
@@ -403,13 +383,12 @@ def optimize_parameters(objH, free_params, save_dir=''):
         objH,
         n_eval=10,
         n_level_reps=1000,
-        append_all_fits=True,
         _return_output=True
     )
     final_output.to_csv(os.path.join(save_dir, f'optFit-{filename}.csv'), index=False)
 
     # ------------------------
-    # 6. Calculate summary statistics
+    # 7. Calculate summary statistics
     # ------------------------
 
     # Summarise the distribution of selected top fits by task, decoder, and condition.
@@ -424,16 +403,14 @@ def optimize_parameters(objH, free_params, save_dir=''):
     )
 
     # ----------------------
-    # 7. Save
+    # 8. Save
     # ----------------------
 
     # Save the robust top-fit table.
-    top_fits = top_fits.copy().round(6)
-    top_fits.to_csv(os.path.join(save_dir, f'topFits-{filename}.csv'))
+    top_fits.round(5).to_csv(os.path.join(save_dir, f'topFits-{filename}.csv'))
 
     # Save summary statistics for the selected top fits.
-    top_summary = top_summary.copy().round(5)
-    top_summary.to_csv(os.path.join(save_dir, f'summaryTopFits_{filename}.csv'))
+    top_summary.round(5).to_csv(os.path.join(save_dir, f'summaryTopFits_{filename}.csv'))
 
     return None
 
@@ -457,28 +434,29 @@ if __name__ == '__main__':
     TASK_NAMES = ['ori_dis', 'con_det']  # which tasks to optimise ['con_det', 'ori_dis']
 
     FIT_BOTH_TASKS = False  # Whether to fit simulations to both tasks at once
-    FIT_AVERAGE = True  # Fit to average data
-    FIT_INDIVIDUAL = False  # Fit to each participant
+    FIT_AVERAGE = False  # Fit to average data
+    FIT_INDIVIDUAL = True  # Fit to each participant
 
     MEASURE = 'OEI'  # 'OEI' or 'thresholds'
     CONTRAST = 100  # Contrast for orientation discrimination
-    TOTAL_N = 180  # ---Note--- Switch to N=180 (or lower) for faster simulations
+    TOTAL_N = 60  # ---Note--- Switch to N=180 (or lower) for faster simulations
 
-    ERROR_TYPE = 'lin'
-    FREE_PARAM_IDS = {'n_fraction': 'Nf',
-                      'fwhm_fraction': 'Hf',
-                      'noise_scale_fraction': 'NZf',
-                      'rmax_fraction': 'Rf'}
+    # Used to convert param names into short strings for saving
+    FREE_PARAM_IDS = {
+        'n_fraction': 'Nf',
+        'fwhm_fraction': 'Hf',
+        'noise_scale_fraction': 'NZf',
+        'rmax_fraction': 'Rf'
+    }
 
     # Generate every non-empty combination of anisotropy parameters. Each
     # combination defines a different model variant to be fitted.
     allFreeParams = ['n_fraction', 'fwhm_fraction', 'noise_scale_fraction', 'rmax_fraction']
 
-    _all_combinations = True
+    _all_combinations = False  # Set to True to simulate full parameter sets / all combinations
 
     if _all_combinations is True:
         freeParamCombos = []
-
         for r in range(1, len(allFreeParams) + 1):
             freeParamCombos.extend(itls.combinations(allFreeParams, r))
     else:
@@ -486,6 +464,10 @@ if __name__ == '__main__':
 
     # Fit every model variant in turn.
     for FREE_PARAMS_CHOICE in freeParamCombos:
+
+        # --------------------------------------------------------------------
+        # Paths
+        # --------------------------------------------------------------------
 
         # Create a compact label for the current set of free parameters.
         param_id_str = ''.join(f"{FREE_PARAM_IDS.get(p, p)}_" for p in FREE_PARAMS_CHOICE).rstrip('_')
@@ -496,24 +478,16 @@ if __name__ == '__main__':
         if FIT_BOTH_TASKS:
             TITLE += "__BOTHTASKS"
 
-        log_anisotropies = True
-
-        # --------------------------------------------------------------------
-        # Paths
-        # --------------------------------------------------------------------
-
-        # Each model variant receives its own output directory. Existing completed
-        # variants are skipped to avoid accidental overwrites.
+        # Each model variant receives its own output directory.
+        # Existing variants are skipped to avoid accidental overwrites.
         og_dir = os.getcwd()
-        beh_data_dir = os.path.join(og_dir, 'beh_data')
 
         fits_dir = os.path.join(og_dir, 'test', TITLE)
 
         if not os.path.exists(fits_dir):
             os.makedirs(fits_dir)
         else:
-            print(f"Path already exists for {TITLE}. Skipping to next fit.")
-            continue
+            print(f"Path already exists for {TITLE}. Overwriting fit.")
 
         os.makedirs(fits_dir, exist_ok=True)
 
@@ -523,27 +497,44 @@ if __name__ == '__main__':
 
         # config stores both simulation settings and the behavioural target values
         # against which model predictions are evaluated.
-        config = {'run_type': 'loop',
-                  'design': 'mocs',
-                  'std_oris': [0, 45],
-                  'contrasts': [CONTRAST],
-                  'n_level_reps': 10,  # Set to 50 (10 for quick)
-                  'step_size': 0.02,  # Orispace tiling resolution
+        config = {
+            'run_type': 'loop',
+            'design': 'mocs',
 
-                  # Behavioural Data
-                  'OEI': {'con_det': [1.06, 1.39, 1.71], 'ori_dis': [2.45, 3.25, 3.36]},
-                  'thresholds': {'con_det': [[0.459, 0.491], [1.123, 1.792], [5.154, 9.499]],
-                                 'ori_dis': [[0.817, 2.033], [1.016, 3.261], [1.339, 4.049]]
-                                 },
-                  }
+            'std_oris': [0, 45],
+            'contrasts': [CONTRAST],
+            'n_level_reps': 10,  # Set to 50 (10 for quick)
+
+            'step_size': 0.02,  # Orispace tiling resolution
+
+            # Behavioural targets
+            'OEI': {
+                'con_det': [1.06, 1.39, 1.71],
+                'ori_dis': [2.45, 3.25, 3.36]
+            },
+            'thresholds': {
+                'con_det': [[0.459, 0.491], [1.123, 1.792], [5.154, 9.499]],
+                'ori_dis': [[0.817, 2.033], [1.016, 3.261], [1.339, 4.049]]
+            },
+
+            # Differential Evolution Settings (smaller values than in formal modelling)
+            # 'N_runs': 3,  # Number of repeats of initial DE routine
+            # 'popsize': 12,  # Population size of DE
+            # 'maxiter': 10,  # Max iter of DE
+
+            'N_runs': 1,  # Number of repeats of initial DE routine
+            'popsize': 2,  # Population size of DE
+            'maxiter': 2,  # Max iter of DE
+        }
+
         print(f"Tiling step size = {config['step_size']}")
 
         # === SF conditions === #
 
-        # Spatial-frequency conditions are labelled low, mid, and high. Each
-        # condition has a different tuning width.
+        # Spatial-frequency conditions are labelled low, mid, and high.
+        # Each condition has a different tuning width.
         cond_labels = ['low', 'mid', 'high']
-        sf_params = {'fwhm': [56.2, 30.0, 22.0]}
+        sf_params = {'fwhm': [56.2, 30.0, 22.0]}  # Bandwidth is defined in full-width half max
 
         # --------------------------------------------------------------------
         # Free parameters
@@ -567,28 +558,26 @@ if __name__ == '__main__':
             'oblique_crf_c50': {'x0': 24, 'bounds': (5, 50)},
 
             # Anisotropies
-            'n_fraction': {'x0': 1, 'bounds': (1/4, 4)},
-            'fwhm_fraction': {'x0': 1, 'bounds': (1/4, 4)},
-            'rmax_fraction': {'x0': 1, 'bounds': (1/4, 4)},
-            'noise_scale_fraction': {'x0': 1, 'bounds': (1/4, 4)},
+            'n_fraction': {'x0': 1, 'bounds': (1 / 4, 4)},
+            'fwhm_fraction': {'x0': 1, 'bounds': (1 / 4, 4)},
+            'rmax_fraction': {'x0': 1, 'bounds': (1 / 4, 4)},
+            'noise_scale_fraction': {'x0': 1, 'bounds': (1 / 4, 4)},
 
-            'crf_exponent_fraction': {'x0': 1, 'bounds': (1/4, 4)},
-            'crf_c50_fraction': {'x0': 1, 'bounds': (1/4, 4)},
+            'crf_exponent_fraction': {'x0': 1, 'bounds': (1 / 4, 4)},
+            'crf_c50_fraction': {'x0': 1, 'bounds': (1 / 4, 4)},
         }
 
         # Select only the free parameters for the current model variant.
         free_params = {}
         for choice in FREE_PARAMS_CHOICE:
-            free_params[choice] = free_params_settings[choice]
+            # deepcopy() is necessary to keep values independent across simulations
+            free_params[choice] = copy.deepcopy(free_params_settings[choice])
 
-        # Optimise fraction parameters on a log scale. This makes multiplicative
-        # effects easier to search and treats reciprocal ratios symmetrically.
+        # Optimise fraction parameters on a log scale (reciprocal ratios become symmetric about midpoint)
         for param, fit_constraints in free_params.items():
-            if not param.endswith(f"_fraction"):
-                continue
-
-            for k in fit_constraints:
-                free_params[param][k] = np.log(free_params[param][k])
+            if param.endswith(f"_fraction"):
+                for k in fit_constraints:
+                    free_params[param][k] = np.log(free_params[param][k])
 
         # --------------------------------------------------------------------
         # Default model parameters
@@ -597,13 +586,16 @@ if __name__ == '__main__':
         # These defaults define the baseline model. Any free parameters selected
         # above will be overwritten during optimisation.
         default_params = {
+
             # PARAMS
             'total_n': TOTAL_N, 'fwhm': 50, 'rmax': 60, 'noise_scale': 1,
             'spont': 1, 'crf_exponent': 2, 'crf_c50': 24,
             'pooling_q': 7, 'param_distrib': 'cos', 'pref_distrib': 'cos',
+
             # ANISOTROPIES
             'n_fraction': 1, 'fwhm_fraction': 1, 'rmax_fraction': 1, 'noise_scale_fraction': 1,
             'crf_exponent_fraction': 1, 'crf_c50_fraction': 1, 'spont_fraction': 1,
+
         }
 
         # --------------------------------------------------------------------
@@ -624,81 +616,96 @@ if __name__ == '__main__':
                         print(f">>> Decoder = {decoder}")
 
                         # Create simulator for the current model variant.
-                        simulator = ModelSimulator(default_params, cond_labels, sf_params, log_anisotropies=log_anisotropies)
+                        simulator = ModelSimulator(default_params, cond_labels, sf_params)
 
                         # Create objective function for the current task and decoder.
                         config['decoder'] = decoder
-                        objHandler = ObjectiveFunction(simulator=simulator, tasknames=task, decoders=decoder, measure=MEASURE,
-                                                       config=config, error_type=ERROR_TYPE)
+                        objHandler = ObjectiveFunction(
+                            simulator=simulator,
+                            tasknames=task,
+                            decoders=decoder,
+                            measure=MEASURE,
+                            config=config,
+                        )
 
-                        # Run the optimisation pipeline for this task/decoder pair.
-                        opt_fit = optimize_parameters(objHandler, free_params, log_anisotropies, cond_labels=cond_labels,
-                                                     save_dir=fits_dir)
+                        # Run the optimisation pipeline for this task/decoder pair (saved in fn).
+                        optimize_parameters(objHandler, free_params, config, save_dir=fits_dir)
 
-                        z = 0
             else:
-                # Joint-task mode: fit both tasks simultaneously for every pairing
-                # of contrast-detection and orientation-discrimination decoders.
-                all_decoder_pairs = list(itls.product(*[DECODERS[_t] for _t in TASK_NAMES]))  # Pairings of decoders for each task
+
+                # Fit both tasks simultaneously for every pairing of pooling method and orientation decoder.
+                all_decoder_pairs = list(
+                    itls.product(*[DECODERS[_t] for _t in TASK_NAMES]))
 
                 for decoder_pair in all_decoder_pairs:
 
                     # Create simulator for the current model variant.
-                    simulator = ModelSimulator(default_params, cond_labels, sf_params, log_anisotropies=log_anisotropies)
+                    simulator = ModelSimulator(default_params, cond_labels, sf_params)
 
                     # Create objective function spanning both tasks.
-                    objHandler = ObjectiveFunction(simulator=simulator, tasknames=TASK_NAMES, decoders=decoder_pair,
-                                                   measure=MEASURE, config=config, error_type=ERROR_TYPE)
+                    objHandler = ObjectiveFunction(
+                        simulator=simulator,
+                        tasknames=TASK_NAMES,
+                        decoders=decoder_pair,
+                        measure=MEASURE,
+                        config=config,
+                    )
 
                     # Run the optimisation pipeline for this decoder pairing.
-                    optimize_parameters(objHandler, free_params, log_anisotropies, cond_labels=cond_labels,
-                                        save_dir=fits_dir)
+                    optimize_parameters(objHandler, free_params, config, save_dir=fits_dir)
 
         # --------------------------------------------------------------------
         # Individual-participant fits
         # --------------------------------------------------------------------
 
-        # Repeat the same fitting logic at participant level. The configuration is
-        # copied and then updated with each participant's own behavioural scores.
+        # Repeat the same fitting logic at participant level.
         if FIT_INDIVIDUAL is True:
 
             # Load participant-level OEI data for each task.
-            beh_oei_scores = []
+            beh_data = []
 
             for task in TASK_NAMES:
-                i_df = pd.read_csv(os.path.join(beh_data_dir, f'ratios_{task}.csv'))
-                i_df['task'] = task  # Assign task label (reason for this weird bit)
-                beh_oei_scores.append(i_df)
 
-            beh_oei_scores = pd.concat(beh_oei_scores)
-            beh_oei_scores = beh_oei_scores[beh_oei_scores['ratio'] == 'OEI']
+                # Load analysed data
+                exp = 'Contrast Detection' if task == 'con_det' else 'Orientation Discrimination'
+                i_df = pd.read_csv(
+                    os.path.join(og_dir, '..', 'Psychophysics', exp, 'analysis', f'ratios_{task}.csv')
+                )
 
-            # Copy the group-level config so participant-specific target scores
+                i_df['task'] = task  # Assign task label (may be omitted from original data)
+                beh_data.append(i_df)
+
+            beh_data = pd.concat(beh_data)
+
+            beh_oei_scores = beh_data[beh_data['ratio'] == 'OEI']
+
+            # deepcopy the group-level config so participant-specific target scores
             # can be inserted without modifying the original config object.
             indiv_config = copy.deepcopy(config)
 
             for pname in beh_oei_scores['participant'].unique():
-                print(f">>>>> Parameter fits for {pname}")
+                print(f"\n\n=========\nParameter fits for {pname}\n=========\n\n")
 
                 # Select behavioural data for this participant.
                 p_oei_scores = beh_oei_scores[beh_oei_scores['participant'] == pname]
 
-                # Insert this participant's OEI scores into the config.
+                # Configuration is updated with each participant's own behavioural scores.
                 for task in TASK_NAMES:
                     indiv_config['OEI'][task] = p_oei_scores[p_oei_scores['task'] == task]['score'].to_list()
 
-                # Deal with varying numbers of completed conditions across
-                # participants. Only include the spatial-frequency conditions that
-                # this participant actually completed.
-                sf_to_idx_dict = {2: 0, 8: 1, 16: 2}
+                # --- Filter SF condtions --- #
+                # Only include the spatial-frequency conditions that this participant actually completed.
+                sf_order = pd.Index([2, 8, 16])
 
-                idcs = [sf_to_idx_dict[_sf] for _sf in p_oei_scores['spatial frequency'].unique()]
+                p_sf_conds = p_oei_scores['spatial frequency'].unique()
+                p_sf_idcs = sf_order.get_indexer(p_sf_conds)
 
-                p_cond_labels = [cond_labels[_i] for _i in idcs]
+                p_cond_labels = [cond_labels[i] for i in p_sf_idcs]
 
-                p_sf_params = sf_params.copy()
-                for k in p_sf_params:
-                    p_sf_params[k] = [p_sf_params[k][_i] for _i in idcs]
+                p_sf_params = {
+                    key: [values[i] for i in p_sf_idcs]
+                    for key, values in sf_params.items()
+                }
 
                 # Create this participant's output folder.
                 pname_fit_dir = os.path.join(fits_dir, 'indiv', pname)  # PATH
@@ -708,41 +715,43 @@ if __name__ == '__main__':
 
                 if FIT_BOTH_TASKS is False:
 
-                    # Separate-task mode: fit each task and decoder independently
-                    # for this participant.
+                    # Independent task/decoder fits for this participant.
                     for task in TASK_NAMES:
                         for decoder in DECODERS[task]:
-
                             # Create participant-specific simulator.
-                            simulator = ModelSimulator(default_params, p_cond_labels, p_sf_params,
-                                                       log_anisotropies=log_anisotropies)
+                            simulator = ModelSimulator(default_params, p_cond_labels, p_sf_params)
 
                             # Create participant-specific objective function.
                             indiv_config['decoder'] = decoder
-                            objHandler = ObjectiveFunction(simulator=simulator, tasknames=task, decoders=decoder,
-                                                           measure=MEASURE,
-                                                           config=indiv_config, error_type=ERROR_TYPE)
+                            objHandler = ObjectiveFunction(
+                                simulator=simulator,
+                                tasknames=task,
+                                decoders=decoder,
+                                measure=MEASURE,
+                                config=indiv_config
+                            )
 
                             # Run optimisation for this participant, task, and decoder.
-                            optimize_parameters(objHandler, free_params, log_anisotropies, cond_labels=p_cond_labels,
-                                                save_dir=pname_fit_dir)
+                            optimize_parameters(objHandler, free_params, indiv_config, save_dir=pname_fit_dir)
 
                 else:
                     # Joint-task participant-level fitting. Each decoder pairing is
                     # fitted to both tasks simultaneously.
-                    DECODERS = list(itls.product(*[DECODERS[_t] for _t in TASK_NAMES]))  # Pairings of decoders for each task
+                    DECODERS = list(
+                        itls.product(*[DECODERS[_t] for _t in TASK_NAMES]))  # Pairings of decoders for each task
 
                     for decoder_pair in DECODERS:
-
                         # Create simulator
-                        simulator = ModelSimulator(default_params, cond_labels, sf_params,
-                                                   log_anisotropies=log_anisotropies)
+                        simulator = ModelSimulator(default_params, p_cond_labels, p_sf_params)
 
                         # Create objective function spanning both tasks.
-                        objHandler = ObjectiveFunction(simulator=simulator, tasknames=TASK_NAMES, decoders=decoder_pair,
-                                                       measure=MEASURE, config=indiv_config, error_type=ERROR_TYPE)
+                        objHandler = ObjectiveFunction(
+                            simulator=simulator,
+                            tasknames=TASK_NAMES,
+                            decoders=decoder_pair,
+                            measure=MEASURE,
+                            config=indiv_config
+                        )
 
                         # Run optimisation for this participant and decoder pairing.
-                        optimize_parameters(objHandler, free_params, log_anisotropies, cond_labels=cond_labels,
-                                            save_dir=pname_fit_dir)
-
+                        optimize_parameters(objHandler, free_params, indiv_config, save_dir=pname_fit_dir)
