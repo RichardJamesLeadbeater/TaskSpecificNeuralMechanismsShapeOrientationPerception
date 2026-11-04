@@ -665,7 +665,7 @@ if __name__ == '__main__':
 
             fits_dir = os.path.join(
                 og_dir,
-                'JoV_revs',
+                'JoV_fits',
                 f"deN{DE_CONFIG['N_SEEDS']}_p{DE_CONFIG['popsize']}_i{DE_CONFIG['maxiter']}_MS{MASTER_SEED}",
                 TITLE
             )

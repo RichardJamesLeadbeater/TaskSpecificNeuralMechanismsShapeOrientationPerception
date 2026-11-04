@@ -2,7 +2,7 @@
 
 Expected directory structure
 ----------------------------
-JoV_revs/deN50_p12_i10_MS101/
+JoV_fits/deN50_p12_i10_MS101/
     <fit directories>/
         *.csv
         indiv/<participant>/*.csv
@@ -39,7 +39,7 @@ from mytools.symbols import misc_symbols, model_symbols
 # CONFIGURATION
 # =============================================================================
 
-DATA_DIR = Path.cwd() / "JoV_revs" / "deN50_p12_i10_MS101"
+DATA_DIR = Path.cwd() / "JoV_fits" / "deN50_p12_i10_MS101"
 GRAPH_DIR = DATA_DIR / "graphs"
 
 OUTPUT_DIRS = {
