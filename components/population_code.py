@@ -3,7 +3,7 @@ from numpy import asarray as arr, newaxis as nax
 from scipy.linalg import hankel
 from scipy.optimize import minimize
 import random
-from .general_functions import get_attrib, save_attrib, find_nearest, generate_gaussian, generate_cosine, \
+from .general_functions import find_nearest, generate_gaussian, generate_cosine, \
     generate_vonmises, convert_to_circular_space, \
     normalise, poissonlike_noise, generate_wrapped_gaussian
 from components.run import set_random_seed
@@ -15,7 +15,7 @@ def prefs_sampling_error(prefs_fun, scale, desired_n, **kwargs):
     For a given scale, calculate error between the desired and actual n_cardinal
     """
     scale = np.exp(scale)  # Works with negative values
-    output = prefs_fun(scale=scale, size=kwargs.get('size', 10000))
+    output = prefs_fun(scale=scale)
     n = output['n_cardinal']
     error = abs(n - desired_n)
     if kwargs.get('_print') is True:
@@ -24,7 +24,7 @@ def prefs_sampling_error(prefs_fun, scale, desired_n, **kwargs):
     return error
 
 
-def gen_population_code(cardinal_params, oblique_params, orispace, pref_sampling='whole', **kwargs):
+def gen_population_code(cardinal_params, oblique_params, ori_space, pref_sampling='whole', **kwargs):
     # Params defined for the whole populations (default)
     global_params = {
         'n_prefs': cardinal_params.n_prefs + oblique_params.n_prefs,
@@ -32,17 +32,17 @@ def gen_population_code(cardinal_params, oblique_params, orispace, pref_sampling
         'noise_type': 'poisson',
         'pref_distrib': 'cos',
         'param_distrib': 'cos',
-        'tuning_dist': 'von_mises',
+        'tuning_type': 'von_mises',
         'pooling_q': cardinal_params.pooling_q,
     }
-    if kwargs.get('g_params') is not None:  # update default global_params
-        for _key in kwargs['g_params']:
-            global_params[_key] = kwargs['g_params'][_key]
+    if kwargs.get('global_params') is not None:  # update default global_params
+        for _key in kwargs['global_params']:
+            global_params[_key] = kwargs['global_params'][_key]
 
     anisotropy_info = {'param_labels': ['n_prefs', 'fwhm', 'pref_distrib', 'param_distrib', 'rmax', 'spont',
                                         'noise_scale', 'crf_exponent', 'crf_c50'],
                        'cardinal_params': cardinal_params.__dict__, 'oblique_params': oblique_params.__dict__}
-    population_code = PopulationCode(orispace=orispace, anisotropy=anisotropy_info, debug=kwargs.get('debug', False),
+    population_code = PopulationCode(ori_space=ori_space, anisotropy=anisotropy_info, debug=kwargs.get('debug', False),
                                      global_params=global_params, pref_sampling='whole')
     population_code.init_population_code()
 
@@ -103,22 +103,6 @@ class Params:
                 h = self.fwhm / 2
                 self.kappa = np.log(0.5) / (np.cos(2 * h) - 1)  # Swindale (1998)
 
-    def set_fwhm(self, fwhm):
-        self.sigma = fwhm / (2 * np.sqrt(2 * np.log(2)))
-        self.fwhm = fwhm
-
-    def set_n_prefs(self, n_prefs=None):
-        if n_prefs is None:
-            n_prefs = self.n_prefs
-        if n_prefs != 0:
-            self.deg_per_pref = 45 / n_prefs
-        self.n_prefs = n_prefs
-
-    def set_noise_scale(self, noise_scale):
-        self.noise_scale = noise_scale
-
-    def set_rmax(self, rmax=None):
-        self.rmax = rmax
 
 
 class Tiling:
@@ -133,38 +117,28 @@ class Tiling:
         self.name = name
         if name is None:
             self.name = 'tiling'
-        # if _save_external is True:
-        #     self.save_attrib('tiling', _replace=True)  # saves externally and replaces w/ None
-
-    def save_attrib(self, attrib_label, path=None, _replace=True):
-        # save out attrib and replace og with None
-        save_attrib(self.__dict__[attrib_label], f"{self.name}_{attrib_label}", path)
-        if _replace is True:
-            self.__dict__[attrib_label] = None  # .get_tiling() needed
-
-    def get_attrib(self, attrib_label, path=None, _save_internal=False):
-        attrib = get_attrib(f"{self.name}_{attrib_label}", path)  # returns tiling array
-        if _save_internal is True:
-            self.__dict__[attrib_label] = attrib
-        return attrib
 
 
 class PopulationCode:
-    def __init__(self, orispace, anisotropy=None, name=None, debug=True, **kwargs):
+    def __init__(self, ori_space, anisotropy=None, name=None, debug=True, **kwargs):
         self.pref_sampling = kwargs.get('pref_sampling')  # whether old version used (individual neural populations)
         self.params_co = None
-        self.param_distribs = None
+        self.param_distribs = {}
         self.params = None  # callable with .get_params()
         self.debug = debug  # if True then error checks will occur
-        self.orispace = orispace
-        self.global_params = kwargs.get('global_params')
-        if kwargs.get('global_params') is not None:
+        self.ori_space = ori_space
+
+        self.global_params = kwargs.get('global_params', None)
+        if self.global_params is not None:
             self.global_params['n_samples'] = int(
-                self.global_params['n_prefs'] * (self.orispace.range / 180))  # whole range (not per 180)
+                self.global_params['n_prefs'] * (self.ori_space.range / 180)
+            )  # whole range (not per 180)
+
         # Anisotropic parameters
         self.anisotropy = anisotropy
         # the following will be appended in methods of class
         self.tunings = []
+        self._tuning_normalisation = kwargs.get('_tuning_normalisation', 'peak')
         self.prefs = []
         self.prefs_idx = []
         self.stim_ori = None
@@ -177,11 +151,20 @@ class PopulationCode:
         if name is None:
             name = 'populationcode'
         self.name = name
-        # Template popcode
-        self.template_popcode = None
-        self.template_decoder = None
         self.saved_response = {}  # saves decoded vals in dict key=stim_ori
+        # Template popcode
+        self.template_model = None
+        self.template_decoder = None
+        self.template_contrast = None
         self.decoded_template = None
+
+        self.window_idcs = None
+
+        self.prior_ori = None
+
+        self._corr_noise_cache_key = None
+        self._corr_noise_sqrt = None
+        self._corr_noise_cholesky = None
 
     def save_attrib(self, attrib_label, path=None, _replace=True):
         # save out attrib and replace og with None
@@ -215,13 +198,12 @@ class PopulationCode:
 
     def gen_anisotropic_distribution(self, o_lim=None, c_lim=None):
         g_params = self.global_params
-        tiling = self.orispace.tiling
+        tiling = self.ori_space.tiling
         n_cycles = 4  # cycles per 360 deg, therefore 90 deg period required 4 cycles
         # peaks=cardinal  troughs=obliques
         # Set distribution for params and prefs
         for i_dist in ['pref_distrib', 'param_distrib']:
             distrib = self.global_params[i_dist]
-
             if any(_i == distrib for _i in ['cos', 'vonmises']):
                 if g_params[i_dist] == 'cos':
                     curve = generate_cosine(tiling, n_cycles=n_cycles)
@@ -229,7 +211,6 @@ class PopulationCode:
                 elif g_params == 'vonmises':
                     curve = generate_vonmises(tiling, pref=0, sigma=7.5, n_cycles=n_cycles, input_format='deg')
                     curve = normalise(curve, 0, 1)
-
                 o_lim = 0  # proportion of cycle at which oblique cuts off (e.g., 0.5 = half-wave rectified)
                 c_lim = 1
                 curve[curve < o_lim] = o_lim  # obliques
@@ -258,7 +239,9 @@ class PopulationCode:
         self.generate_params()  # parameters for each neuron sampled according to orientation preference
         self.generate_tunings()  # tuning curve for each pref
 
-    def gen_prefs_distrib(self, scale, size=100000):
+        # self.plot_tunings()
+
+    def gen_prefs_distrib(self, scale, _fast=False):
         # Scale determines how frequently different regions are sampled from the curve
         if scale > 1:
             p_dist = normalise(self.anisotropy['pref_distrib'], 1, scale)
@@ -273,18 +256,31 @@ class PopulationCode:
         # Inverse transform sampling: map uniform samples through inverse CDF
         n_samples = self.global_params['n_samples']
         uniform_samples = np.linspace(0, 1, n_samples, endpoint=False)
-        indices = np.searchsorted(cdf, uniform_samples)
+        idcs = np.searchsorted(cdf, uniform_samples)
+
+        prefs = self.ori_space.tiling[idcs]
+
+        # Fast mode only needs the cardinal count for optimisaiton
+        if _fast:
+            prefs_to_count = prefs[(prefs >= -90) & (prefs < 90)]
+            n_cardinal = np.sum(
+                (prefs_to_count % 90 < 22.5) |
+                (prefs_to_count % 90 > 67.5)
+            )
+            return {'n_cardinal': n_cardinal}
 
         # Corresponding orientations
-        prefs = self.orispace.tiling[indices]
         prefs.sort()
 
         # Count cardinal orientations (within 22.5° of 0°, 90°, 180°, ...)
-        n_cardinal = np.sum((prefs % 90 < 22.5) | (prefs % 90 > 67.5))
-        n_oblique = n_samples - n_cardinal
+        prefs_to_count = prefs[(prefs >= -90) & (prefs < 90)]
+        n_cardinal = np.sum((prefs_to_count % 90 < 22.5) | (prefs_to_count % 90 > 67.5))
+        n_oblique = len(prefs_to_count) - n_cardinal
+
+        propn_cardinal = np.round(n_cardinal / len(prefs_to_count), 3)
 
         output = {'prefs': prefs, 'n_cardinal': n_cardinal, 'n_oblique': n_oblique,
-                  'propn_cardinal': np.round(n_cardinal / (self.global_params['n_samples']), 3)}
+                  'propn_cardinal': propn_cardinal}
 
         return output
 
@@ -293,7 +289,7 @@ class PopulationCode:
         # ORIENTATION PREFERENCE DISTRIBUTIONS #
         g_params = self.global_params
         n_cardinal = self.anisotropy['cardinal_params']['n_prefs']
-        tiling = self.orispace.tiling
+        tiling = self.ori_space.tiling
 
         # Generate preferences using defined distribution
         if np.round(g_params['propn_cardinal'], 2) == 0.50:
@@ -311,24 +307,22 @@ class PopulationCode:
             bias = 50
             x0 = arr([0 + bias])  # 0 = flat (positive = cardinal bias, negative = oblique bias)
 
-            min_fun = lambda scale: prefs_sampling_error(prefs_fun=self.gen_prefs_distrib, scale=scale - bias, size=10000,
-                                                         desired_n=n_cardinal, bias=bias, _print=False)
+            min_fun = lambda scale: prefs_sampling_error(prefs_fun=self.gen_prefs_distrib, scale=scale - bias,
+                                                         desired_n=n_cardinal, bias=bias, _print=False,
+                                                         _fast=True)
 
-            np.random.seed(1)  # Ensures replicable simulations with shared parameters
             result = minimize(min_fun, x0=x0, method='Nelder-Mead', options={'maxiter': 200})
 
             chosen_scale = np.exp(result.x[0] - bias)
 
         # GENERATE PREFS #
         # Using chosen scale for cosine curve
-        prefs_info = self.gen_prefs_distrib(scale=chosen_scale, size=100000)
+        prefs_info = self.gen_prefs_distrib(scale=chosen_scale)
 
         # If actual propn_cardinal substantially deviates from desired, then print
-        _print_actual = False
-        if _print_actual is True:
-            if abs(g_params['propn_cardinal'] - prefs_info['propn_cardinal']) >= 0.015:
-                print(f"Desired propn_cardinal = {g_params['propn_cardinal']:.2f}"
-                      f"\nActual propn_cardinal = {prefs_info['propn_cardinal']:.2f}")
+        if abs(g_params['propn_cardinal'] - prefs_info['propn_cardinal']) >= 0.015:
+            print(f"Desired propn_cardinal = {g_params['propn_cardinal']:.2f}"
+                  f"\nActual propn_cardinal = {prefs_info['propn_cardinal']:.2f}")
 
         # Assign to model
         (prefs, prefs_idx) = find_nearest(tiling, prefs_info['prefs'])
@@ -354,49 +348,79 @@ class PopulationCode:
                                         )
             i_param_distrib = i_param_distrib[self.prefs_idx]  # Index for each ori_pref
             param_distribs[i_param] = i_param_distrib
+
         self.param_distribs = param_distribs
+
         return param_distribs
 
     def generate_tunings(self):
-        # NEW MODEL - prefs from a single distribution #
+        # Generate tuning curves from the selected distribution.
         g_params = self.global_params
         param_distribs = self.param_distribs
-        tiling = self.orispace.tiling
+        tiling = self.ori_space.tiling
         fwhm = param_distribs['fwhm']
-        # Gaussian tuning
-        if g_params['tuning_dist'] == 'gaussian':
-            sigma = fwhm / 2.3548
-            sigma = arr([sigma]).transpose()  # 1 val per ori_pref
-            tunings = generate_gaussian(tiling, self.prefs, sigma)  # gaussian tuning for each pref
 
-        # Wrapped Gaussian tuning
-        elif g_params['tuning_dist'] == 'gaussian_wrapped':
-            sigma = fwhm / 2.3548
-            sigma = arr([sigma]).transpose()  # 1 val per ori_pref
-            tunings = generate_wrapped_gaussian(tiling, self.prefs, sigma, period=180, wrap_range=8)
+        if g_params['tuning_type'] == 'gaussian':
+            sigma = (fwhm / 2.3548)[:, None]
+            tunings = generate_gaussian(tiling, self.prefs, sigma)
 
-        # Von Mises tuning
-        elif g_params['tuning_dist'] == 'von_mises':
-            kappa = np.log(0.5) / (np.cos(np.radians(fwhm)) - 1)  # Swindale (1998)
-            kappa = kappa[:, nax]  # 1 val per ori_pref
-            tunings = generate_vonmises(tiling, self.prefs, kappa, input_format='deg')
+        elif g_params['tuning_type'] == 'gaussian_wrapped':
+            sigma = (fwhm / 2.3548)[:, None]
+            tunings = generate_wrapped_gaussian(
+                tiling, self.prefs, sigma, period=180, wrap_range=8
+            )
+
+        elif g_params['tuning_type'] == 'von_mises':
+            rad_fwhm = np.radians(fwhm)
+            kappa = np.log(0.5) / (np.cos(rad_fwhm) - 1)
+            kappa = kappa[:, None]
+
+            # if any(fwhm > 70):
+            #     print(f"WARNING"
+            #           f"\nvon Mises curve doesn't reach zero with fwhm={fwhm.max():.0f}"
+            #           f"\nAfter normalising between 0 and 1, bandwidth may change")
+
+            tunings = generate_vonmises(
+                tiling, self.prefs, kappa, input_format='deg'
+            )
 
         else:
             return None
 
-        # Normalise so each tuning curve (row) has min=0 and max=1
-        max_vals = np.max(tunings, axis=1)
-        tunings = tunings / arr([max_vals]).T
+        if self.debug is True:
+            # Check the raw tuning-curve floor before min-max normalisation.
+            # Raise an issue if any curve has a minimum significantly above zero.
+            min_frac = tunings.min(axis=1) / tunings.max(axis=1)
+            threshold = 0.05
+            problematic = min_frac > threshold
+            if np.any(problematic):
+                print(
+                    f"Issue: {problematic.sum()}/{len(problematic)} tuning curves "
+                    f"have a minimum > {threshold:.0%} of their peak "
+                    f"(maximum floor = {min_frac.max():.3f})."
+                )
 
-        # tunings = tunings / my_asarray([max_vals]).transpose()  # normalise to 1
-        # Set maximum firing rate to rmax
-        tunings = (tunings.T * param_distribs['rmax']).T  # normalise to rmax
+        if self._tuning_normalisation == 'peak':
+            # Scale each curve so its peak equals its target maximum firing rate.
+            curve_max = tunings.max(axis=1, keepdims=True)
+            tunings = tunings / curve_max * param_distribs['rmax'][:, None]
+
+        elif self._tuning_normalisation == 'minmax':
+            # Normalise each curve to [0, 1], then scale its peak to rmax.
+            curve_min = tunings.min(axis=1, keepdims=True)
+            curve_max = tunings.max(axis=1, keepdims=True)
+            tunings = (tunings - curve_min) / (curve_max - curve_min)
+            tunings = tunings * param_distribs['rmax'][:, None]
+
+        else:
+            raise ValueError("_tuning_normalisation must be 'peak' or 'minmax'")
+
         self.tunings = tunings
         self.log_tunings = np.log(np.clip(tunings, 1e-10, None))
 
         if self.debug is True:
-            plt.plot(tiling, tunings[::5].T)
-            plt.yticks(np.linspace(tiling.min(), tiling.max(), 16))
+            plt.plot(tiling, tunings[::15].T)
+            plt.xticks(np.linspace(tiling.min(), tiling.max(), 16))
             plt.grid()
 
         return tunings
@@ -407,8 +431,8 @@ class PopulationCode:
         c50 = self.param_distribs['crf_c50'][:, None, None]
         r0 = self.param_distribs['spont'][:, None, None]  # set spont firing rate independently from rmax
 
-        # Ensure contrast is an array of shape (1, 1, n_contrasts)
-        contrast = np.atleast_1d(contrast)[None, None, :]
+        # Ensure contrast is an array of shape (:, n_contrasts, :)
+        contrast = np.atleast_1d(contrast)[None, :, None]
 
         # Naka-Rushton scaling factor
         scale = (contrast ** n / (contrast ** n + c50 ** n))
@@ -419,34 +443,126 @@ class PopulationCode:
         return crf_resp
 
     def noisy_response(self, pop_resp):
-        # Noise added onto tuned response
-        if self.global_params['noise_type'] == 'poisson':
-            noise = poissonlike_noise(pop_resp, self.param_distribs['noise_scale'])
+        # Add either independent or orientation-correlated noise to population responses.
+        if self.global_params.get('correlated_noise'):
+
+            # Correlation structure is fixed; random noise is new for every trial.
+            noise = self.gen_correlated_noise(pop_resp, corr_max=self.global_params['corr_max'],
+                                              corr_width=self.global_params['corr_width'])
+
+        elif self.global_params.get('noise_type'):
+            if self.global_params['noise_type'] == 'poisson':
+                noise = poissonlike_noise(pop_resp, self.param_distribs['noise_scale'])
+            else:
+                noise = np.random.normal(size=len(pop_resp))
         else:
             noise = np.random.normal(size=len(pop_resp))
+
         noisy_resp = pop_resp + noise
         noisy_resp[noisy_resp <= 0] = 0  # remove negative firing rates
+
         return noisy_resp
 
-    def gen_stim_response(self, stim_ori, stim_con, n_reps=1):
+    def gen_correlated_noise(self, pop_resp, corr_max=0.1, corr_width=45):
+        n_neurons, n_stim, n_reps = pop_resp.shape
+
+        # Scale Gaussian noise to mimic Poisson-like variability.
+        noise_sd = np.sqrt(np.maximum(pop_resp, 1e-10))
+        noise_sd *= self.param_distribs['noise_scale'][:, None, None]
+
+        # Build the orientation-dependent correlation matrix.
+        prefs = np.asarray(self.prefs, dtype=np.float64)
+        delta_pd = np.abs(prefs[:, None] - prefs[None, :])
+        delta_pd = np.minimum(delta_pd, 180.0 - delta_pd)
+
+        pd_max = 90
+        Td = corr_width / pd_max
+
+        corr_matrix = corr_max * np.exp(
+            -(delta_pd ** 2) / (pd_max * Td) ** 2
+        )
+        np.fill_diagonal(corr_matrix, 1.0)
+
+        # Try the cheaper Cholesky factorisation first.
+        try:
+            cache_key = (corr_max, corr_width)
+
+            if getattr(self, '_corr_noise_cache_key', None) == cache_key:
+                L = self._corr_noise_cholesky
+            else:
+                L = np.linalg.cholesky(
+                    corr_matrix + 1e-8 * np.eye(n_neurons)
+                )
+                self._corr_noise_cholesky = L
+                self._corr_noise_cache_key = cache_key
+
+            # Generate independent standard-normal noise.
+            z = np.random.standard_normal(
+                size=(n_neurons, n_stim * n_reps)
+            )
+
+            # Impose the desired correlations.
+            correlated_noise = (L @ z).reshape(
+                n_neurons, n_stim, n_reps
+            )
+
+        except np.linalg.LinAlgError:
+            # Fall back to the symmetric matrix square-root method.
+            eigvals, eigvecs = np.linalg.eigh(corr_matrix)
+            eigvals = np.maximum(eigvals, 0.0)
+
+            Q = (eigvecs * np.sqrt(eigvals)) @ eigvecs.T
+            Q = Q.astype(np.float32)
+
+            z = np.random.standard_normal(
+                size=(n_neurons, n_stim * n_reps)
+            ).astype(np.float32)
+
+            correlated_noise = (Q @ z).reshape(
+                n_neurons, n_stim, n_reps
+            )
+
+        # Scale correlated noise by the response-dependent noise SD.
+        scaled_correlated_noise = correlated_noise * noise_sd
+
+        self.corr_noise_unscaled = correlated_noise
+        self.corr_noise_scaled = scaled_correlated_noise
+
+        return scaled_correlated_noise
+
+
+    def gen_stim_response(self, stim_ori, stim_con, n_reps=1, window=False):
         """
-        Generate population response given orientation(s) and contrast(s), repeated over n_reps
+        Generate population responses for one or more orientations and repetitions.
+        INPUT: stim_ori with shape [n_oris] or [n_oris, n_reps]
+        OUTPUT: resp_noisy with shape [n_neurons, n_oris, n_reps]
         """
-        # Convert into orientation circular space (-90 to 90)
-        stim_ori = convert_to_circular_space(stim_ori, self.orispace.range)
 
-        _, stim_ori_idx = find_nearest(self.orispace.tiling, stim_ori)  # idx of stim_ori in orientation space
+        # Convert orientations into circular space.
+        stim_ori = np.atleast_1d(stim_ori)
+        stim_ori = convert_to_circular_space(stim_ori, self.ori_space.range)
 
-        # Extract tuned responses for all requested orientations
-        stim_ori_idx = np.atleast_1d(stim_ori_idx)
-        resp_tuned = self.tunings[:, stim_ori_idx]  # shape [neurons, n_oris]
+        tunings = self.tunings
+        tiling = self.ori_space.tiling
 
-        # Repeat each column for n_reps
-        resp_tuned = np.repeat(resp_tuned[:, :, None], n_reps, axis=2)  # shape [neurons, n_oris, n_reps]
-        resp_tuned = np.swapaxes(resp_tuned, 1, 2)  # (360, 1000, 2)
+        # Find stimulus orientation indices within the selected tiling.
+        _, stim_ori_idx = find_nearest(tiling, stim_ori)
 
-        resp_tuned = self.contrast_response(resp_tuned, stim_con)
-        resp_noisy = self.noisy_response(resp_tuned)
+        # Extract tuned responses: [neurons, ...stim_ori dimensions].
+        resp_tuned = tunings[:, stim_ori_idx]
+
+        if stim_ori.ndim == 1:
+            # Input: [n_stim_oris]
+            # Output: [neurons, n_reps, n_stim_oris]
+            resp_tuned = np.repeat(resp_tuned[:, :, None], n_reps, axis=2)
+
+        elif stim_ori.ndim != 2:
+            raise ValueError(
+                f"stim_ori must be 1D or 2D, got shape {stim_ori.shape}"
+            )
+
+        resp_tuned_contrast_scaled = self.contrast_response(resp_tuned, stim_con)
+        resp_noisy = self.noisy_response(resp_tuned_contrast_scaled)
 
         self.stim_ori = stim_ori
         self.stim_ori_idx = stim_ori_idx
@@ -528,14 +644,14 @@ class PopulationCode:
         return distance_vmag
 
     def decode_response(self, response_decoder='WTA', stim_ori=None, stim_con=None, n_reps=None, gen_resp=True,
-                        save_decoded=False, load_decoded=False):
+                        save_decoded=False, load_decoded=False, window=False, prior=False):
         # If using stored decoded estimates
         if load_decoded is True and self.saved_response.get(stim_ori) is not None:
             decoded_val = self.saved_response[stim_ori]
             decoded_val = random.sample(list(decoded_val), n_reps)
             return decoded_val
         else:
-            if all(i or i == 0 for i in [stim_ori, stim_con, n_reps]):
+            if all(i is not None for i in (stim_ori, stim_con, n_reps)):
                 if gen_resp is True:
                     self.gen_stim_response(stim_ori, stim_con, n_reps)
 
@@ -545,7 +661,7 @@ class PopulationCode:
             elif response_decoder == 'PV':
                 decoded_val = self.popvector()
             elif response_decoder == 'ML':
-                decoded_val = self.maxlikelihood()
+                decoded_val = self.maxlikelihood(None, window, prior)
 
             # plt.hist(decoded_val, alpha=0.8)
             # Add tiny amount of noise to separate shared estimates (for comparisons)
@@ -557,23 +673,6 @@ class PopulationCode:
             self.saved_response[stim_ori] = self.decoded
 
         return decoded_val
-
-    def cramer_rao(self, stim_ori, stim_con=100, n_reps=1):
-        self.gen_stim_response(stim_ori, stim_con, n_reps=n_reps)
-        resp_noisy = self.resp_noisy  # each nrn noisy_resp across trials
-        resp_tuned = self.resp_tuned  # each nrn tuned_resp across orispace
-        # Define the parameter and likelihood function
-        resp_tuned = resp_tuned + (1 ** -10)  # removes any vals=zero
-        log_likelihood = resp_noisy.T @ np.log(resp_tuned)  # outputs: [trials x orispace]
-        # # # ... in this matrix multiplication, summed signal (across neurons) each point of orispace
-        # Calculate Fisher Information Matrix
-        score_function = np.gradient(log_likelihood, axis=1)  # use axis 1 as only interested in each trial
-        fisher_info = -np.gradient(score_function, axis=1)
-        # Calculate Cramer-Rao bound (CRB) for given stim_ori by inverting Fisher Information Matrix
-        crb = fisher_info ** -1
-        crb_idx = crb[:, self.stim_ori_idx]
-        crb_ave = np.mean(crb_idx)
-        return crb_ave
 
     def wta(self, pop_resp=None, prefs=None):
         # Pref of the neurons which produced the strongest response each trial
@@ -598,7 +697,7 @@ class PopulationCode:
             pop_prefs = self.prefs
         pop_prefs = np.radians(pop_prefs)
         # Account for 180 deg of circular space
-        if self.orispace.range == 180:
+        if self.ori_space.range == 180:
             pop_prefs = pop_prefs * 2  # convert to circular space (i.e., 360 deg)
 
         # Circular population vector
@@ -610,58 +709,334 @@ class PopulationCode:
         # 3. Estimate angle of average vector in complex plane
         pv_est = np.angle(resultant_vector, deg=True)
 
-        if self.orispace.range == 180:  # Valid so long as orispace is +- 0
+        if self.ori_space.range == 180:  # Valid so long as ori_space is +- 0
             pv_est = pv_est / 2
 
         return pv_est
 
-    def maxlikelihood(self, resp=None, tunings=None, tiling=None, window=True):
+    def maxlikelihood(self, resp=None, window=False, prior=False):
         resp = self.resp_noisy if resp is None else resp
-        log_tunings = np.log(np.clip(tunings, 1e-10, None)) if tunings is not None else self.log_tunings
-        tiling = self.orispace.tiling if tiling is None else tiling
 
-        # Flatten trials/repeats
-        trials = np.prod(resp.shape[1:])  # 2*2 = 4
-        resp_flat = resp.reshape(resp.shape[0], trials)  # shape: (3,4)
+        tunings = self.tunings
+        tiling = self.ori_space.tiling
+        prior_ori = self.prior_ori
 
-        # Default is to include all tunings
-        min_bound_idx = 0
-
-        # Only include responses within an expected range given stimulus orientation (speed up)
+        # Apply orientation window if possible
         if window is True:
-            # Valid when there is only one expected minima (buffer=5 gives same precision as full range)
-            stim_ori = self.stim_ori
-            buffer = 10  # TODO May become more of an issue at low contrasts but not if 100% contrast
-
-            if np.max(stim_ori) + buffer > 90 or np.min(stim_ori) - buffer < -90:
-                print(f"\n!!! MAX LIKELIHOOD SHORTCUT FAILED !!!\n---Applying ML to full tuned range\n")
+            if self.window_idcs:
+                min_idx, max_idx = self.window_idcs
             else:
-                max_bound_val = convert_to_circular_space(np.max(stim_ori) + buffer, self.orispace.range)
-                min_bound_val = convert_to_circular_space(np.min(stim_ori) - buffer, self.orispace.range)
-                _, max_bound_idx = find_nearest(tiling, max_bound_val)
-                _, min_bound_idx = find_nearest(tiling, min_bound_val)
-                log_tunings = log_tunings[:, min_bound_idx:max_bound_idx]
+                min_idx, max_idx = self.get_tuning_window(buffer=20)
 
-        # Reduce memory size
-        resp_flat = resp_flat.astype(np.float32)
-        log_tunings = log_tunings.astype(np.float32)
+            tunings = self.tunings[:, min_idx:max_idx]
+            tiling = self.ori_space.tiling[min_idx:max_idx]
 
-        # Matrix multiplication: neuron axis aligns with log_tunings
-        log_likelihood = resp_flat.T @ log_tunings  # shape: (2000, 3601)
+            if prior and prior_ori:
+                prior_ori = prior_ori[min_idx:max_idx]
 
-        # Find orientation with highest likelihood
-        ml_est = tiling[min_bound_idx + log_likelihood.argmax(axis=1)]
+        # Flatten trials/repeats.
+        resp_flat = resp.reshape(resp.shape[0], -1)
 
-        # Optionally, reshape back to original trial layout (each stim is each col)
-        ml_est = ml_est.reshape(resp.shape[1:])
+        # Compute Poisson log-likelihood.
+        log_tunings = np.log(np.clip(tunings, 1e-10, None))
+        log_L = resp_flat.T @ log_tunings - np.sum(tunings, axis=0)
 
-        return ml_est
+        if not prior:
+            # Select maximum-likelihood orientation.
+            ml_est = tiling[log_L.argmax(axis=1)]
 
-    def gen_template_ori(self, target_ori, n_reps):
-        # Generate the decoded template / internal representation of the target orientation
-        template = self.decoded_template[target_ori]  # template vals for this orientation
-        set_random_seed()
-        np.random.shuffle(template)
-        template_vals = random.sample(list(template), n_reps)
-        return template_vals
+            # Reshape into multiple repetitions of each stimulus orientation
+            ml_est = ml_est.reshape(resp.shape[1:])
+
+            return ml_est
+
+        else:
+            # Stimulus prior used by the efficient-coding model.
+            # prior_ori = np.ones(len(prior_ori))
+            prior_ori = prior_ori / prior_ori.sum()
+
+            # Add the natural orientation prior to obtain the posterior.
+            log_post = log_L + np.log(np.clip(prior_ori, 1e-12, None))
+
+            #!flag don't combine with prior
+            # log_post = log_L
+
+            log_post -= logsumexp(log_post, axis=1, keepdims=True)
+            post = np.exp(log_post)
+
+            # L2 loss gives the posterior mean.
+            post_mean = np.sum(post * tiling[None, :], axis=1)
+
+            post_mean = post_mean.reshape(resp.shape[1:])
+
+            return post_mean
+
+    def target_vs_nontarget_log_L_ratio(self, response=None, target_oris=0, nontarget_oris=None,
+                                        match_nontarget_and_resp_oris=False, window=False):
+        """
+        Compute target vs pooled non-target log likelihood ratio for each stimulus/repetition.
+
+        Parameters:
+            response: Response array with shape (n_neurons, n_stim, n_reps).
+            target_oris: Target orientation.
+            nontarget_oris: Non-target orientations with shape
+                (n_nontargets,), (n_nontargets, n_reps), or None.
+            match_nontarget_and_resp_oris:
+                If True, use the non-target orientation corresponding to each
+                stimulus/repetition rather than pooling over orientations.
+            use_window: Whether to use the selected orientation tuning window.
+
+        Returns:
+            Log likelihood ratio array with shape (n_stim, n_reps).
+        """
+        response = self.resp_noisy if response is None else response
+        tunings = self.tunings
+        tiling = self.ori_space.tiling
+        prior_ori = self.prior_ori
+
+        # Apply orientation window if possible
+        if window is True:
+            min_idx, max_idx = self.get_tuning_window()
+            tunings = self.tunings[:, min_idx:max_idx]
+            tiling = self.ori_space.tiling[min_idx:max_idx]
+            if prior_ori is not None:
+                prior_ori = prior_ori[min_idx:max_idx]
+
+        n_neurons, n_stim, n_reps = response.shape
+
+        # Flatten observations: (n_stim * n_reps, n_neurons).
+        response_flat = response.reshape(n_neurons, -1).T.astype(np.float32)
+
+        # Poisson log likelihood for each observation/orientation.
+        log_tuning_rates = np.log(np.clip(tunings, 1e-10, None))
+        log_L = response_flat @ log_tuning_rates - np.sum(tunings, axis=0)
+
+        #!flag
+        _posterior = False
+        if _posterior:
+            # Stimulus prior used by the efficient-coding model.
+            # prior_ori = np.ones(len(prior_ori))
+            prior_ori = prior_ori / prior_ori.sum()
+            # Add the natural orientation prior to obtain the posterior.
+            log_post = log_L + np.log(np.clip(prior_ori, 1e-12, None))
+            log_post -= logsumexp(log_post, axis=1, keepdims=True)
+            # for now call log_L the posterior
+            log_L = log_post
+
+        # Target likelihood: (n_stim, n_reps).
+        target_oris, target_idcs = find_nearest(tiling, target_oris)
+
+        if len(np.atleast_1d(target_oris)) == 1:
+            log_L_target = log_L[:, target_idcs]
+            log_L_target = log_L_target.reshape(n_stim, n_reps)
+
+        elif target_oris.ndim == 1:
+            log_L_target = log_L[np.arange(n_stim), :, target_idcs]
+
+        elif target_oris.ndim == 2:
+            target_idcs = target_idcs.ravel()
+            log_L_target = log_L[np.arange(log_L.shape[0]), target_idcs]
+            log_L_target = log_L_target.reshape(n_stim, n_reps)
+
+        # -------------------
+        # If the nontarget_oris correspond to the stim_oris defining the response
+        # -------------------
+        if match_nontarget_and_resp_oris is True:
+            nontarget_oris, nontarget_idcs = find_nearest(tiling, nontarget_oris)
+
+            if nontarget_oris.ndim == 1:
+                log_L_nontarget = log_L[np.arange(n_stim), :, nontarget_idcs]
+
+            elif nontarget_oris.ndim == 2:
+                nontarget_idcs = nontarget_idcs.ravel()
+                log_L_nontarget = log_L[np.arange(log_L.shape[0]), nontarget_idcs]
+                log_L_nontarget = log_L_nontarget.reshape(n_stim, n_reps)
+
+            LLR = log_L_target - log_L_nontarget
+
+        # -------------------
+        # TODO POOL LIKELIHOOD MIXTURE OF OTHER ORIENTATIONS
+        # -------------------
+
+        return LLR
+
+    def get_tuning_window(self, buffer=30, stim_ori=None):
+        """Return tuning curves and corresponding orientation tiling."""
+
+        tiling = self.ori_space.tiling
+        stim_ori = self.stim_ori if stim_ori is None else stim_ori
+
+        # Fall back to the full orientation range near circular boundaries
+        if np.max(stim_ori) + buffer >= tiling.max() or np.min(stim_ori) - buffer <= tiling.min():
+            print("\n!!! WINDOWING FAILED: using full tuned range !!!\n")
+            min_idx = 0
+            max_idx = len(tiling) - 1
+
+        else:
+            minmax_vals = convert_to_circular_space(
+                [np.min(stim_ori) - buffer, np.max(stim_ori) + buffer],
+                self.ori_space.range
+            )
+            _, min_idx = find_nearest(tiling, minmax_vals[0])
+            _, max_idx = find_nearest(tiling, minmax_vals[1])
+
+        return min_idx, max_idx
+
+    def convert_to_category_space(self, ori, category_noise_sd=0.05, _noise_choice=None):
+
+        ori = np.asarray(ori)
+        # Sensory prior
+        theta = np.radians(self.ori_space.tiling)
+
+        category_cardinal_ratio = self.global_params['category_cardinal_ratio']
+
+        # Normalise the orientation prior
+        prior_ori = cardinal_orientation_prior(theta, np.min(theta), category_cardinal_ratio)
+        prior_ori /= trapezoid(prior_ori, theta)  # Correct small numerical integration error.
+
+        # Veridical -> category space, giving values from 0 to 1
+        # Construct warping function
+        category_space = cumulative_trapezoid(prior_ori, theta, initial=0.0)
+        category_space = (category_space / category_space[-1] - 0.5) * 2 * self.ori_space.max_tile
+
+        # plt.plot(self.ori_space.tiling, category_space)
+        # plt.xlabel('Veridical Orientation Space')
+        # plt.ylabel('Category Orientation Space')
+        # plt.show()
+
+        # Create veridical -> category transformation
+        veridical_to_category = interp1d(theta, category_space, kind='linear', bounds_error=True)
+        if _noise_choice is None:
+            # Convert from veridical (perception) to category space
+            ori_radians = np.radians(ori)
+            category_value = veridical_to_category(ori_radians)
+
+            #!flag Extra stage of processing after generating categorised value... why?
+
+        elif _noise_choice == 'late':
+            # Convert from veridical (perception) to category space
+            ori_radians = np.radians(ori)
+            category_value = veridical_to_category(ori_radians)
+
+            # Currently only a linear transform has been performed, so won't change decision
+            # If noise added to category estimate, then you would influence decisions (category conversion cost)
+            category_noise = np.random.randn(*category_value.shape) * category_noise_sd
+
+            category_value = category_value + category_noise
+
+        elif _noise_choice == 'early':
+
+            category_noise = np.random.randn(*ori.shape) * category_noise_sd
+            # Convert from veridical (perception) to category space
+            ori_radians = np.radians(ori + category_noise)
+
+            category_value = veridical_to_category(ori_radians)
+
+            # Currently only a linear transform has been performed, so won't change decision
+            # If noise added to category estimate, then you would influence decisions (category conversion cost)
+        else:
+            category_value = None
+
+        return category_value
+
+    def ori_reproduction_check(self, stim_oris=None, category_noise_sd=None, contrast=100, n_level_reps=200,
+                               prior=True, show_plots=False, save_path=''):
+        tiling = self.ori_space.tiling
+        if stim_oris is None:
+            stim_oris = np.linspace(-80, 80, 61)
+
+        if category_noise_sd is None:
+            category_noise_sd = self.global_params.get('category_noise_sd')
+
+        decoded_oris = self.decode_response('ML', stim_oris, contrast, n_reps=n_level_reps,
+                                            window=False, prior=prior)
+
+        repro_error = decoded_oris.T - stim_oris
+        mean_repro_error = np.mean(repro_error, axis=0)
+        sd_repro_error = np.std(repro_error, axis=0)
+
+        plt.plot(stim_oris, mean_repro_error, color='black')
+        plt.fill_between(stim_oris, mean_repro_error - sd_repro_error,
+                         mean_repro_error + sd_repro_error, alpha=0.2)
+        plt.xlabel("Stimulus Orientation")
+        plt.ylabel("Veridical error")
+
+        # Save the figure if a path is supplied.
+        if save_path:
+            if os.path.splitext(save_path)[1]:
+                # Treat paths with an extension as complete filenames.
+                save_dir = os.path.dirname(save_path)
+                if save_dir:
+                    os.makedirs(save_dir, exist_ok=True)
+                plt.savefig(save_path, bbox_inches='tight', dpi=300)
+            else:
+                # Treat paths without an extension as directories.
+                os.makedirs(save_path, exist_ok=True)
+                plt.savefig(os.path.join(save_path, 'ori_reproduction_check.png'),
+                            bbox_inches='tight', dpi=300)
+
+        if show_plots:
+            plt.show()
+        else:
+            plt.close()
+
+        return repro_error
+
+    def plot_tunings(self, neuron_idx=None, n_neurons=None, prefs=None, ax=None,
+                     alpha=0.5, linewidth=1, show_prefs=True, show=True):
+
+        # Check that tuning curves have been generated.
+        if self.tunings is None or len(self.tunings) == 0:
+            raise ValueError("No tuning curves found. Run generate_tunings() first.")
+
+        tiling = np.asarray(self.ori_space.tiling)
+        tunings = np.asarray(self.tunings)
+
+        # Select neurons by index, preferred orientation, or evenly across the population.
+        if neuron_idx is not None:
+            neuron_idx = np.atleast_1d(neuron_idx).astype(int)
+
+        elif prefs is not None:
+            prefs = np.atleast_1d(prefs)
+            neuron_idx = np.asarray([
+                np.argmin(np.abs(self.prefs - pref)) for pref in prefs
+            ])
+
+        else:
+            if n_neurons is None:
+                n_neurons = min(60, tunings.shape[0])
+
+            neuron_idx = np.linspace(
+                0, tunings.shape[0] - 1, n_neurons, dtype=int
+            )
+
+        if np.any(neuron_idx < 0) or np.any(neuron_idx >= tunings.shape[0]):
+            raise IndexError("neuron_idx contains an invalid neuron index.")
+
+        if ax is None:
+            _, ax = plt.subplots(figsize=(8, 5))
+
+        # Plot each selected neuron's tuning curve.
+        for idx in neuron_idx:
+            label = f"Pref = {self.prefs[idx]:.1f}°" if show_prefs else None
+            ax.plot(
+                tiling,
+                tunings[idx],
+                alpha=alpha,
+                linewidth=linewidth,
+                label=label
+            )
+
+        ax.set_xlabel("Stimulus orientation (°)")
+        ax.set_ylabel("Response")
+        ax.set_xlim(tiling.min(), tiling.max())
+        ax.grid(alpha=0.25)
+
+        if show_prefs:
+            ax.legend(title="Neuron", bbox_to_anchor=(1.02, 1), loc="upper left")
+
+        if show:
+            plt.show()
+
+        return ax
 

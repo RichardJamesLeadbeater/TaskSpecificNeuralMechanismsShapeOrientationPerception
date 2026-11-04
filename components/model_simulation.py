@@ -1,25 +1,9 @@
 import copy
-from copy import deepcopy
-import itertools as itls
-import os
-from asyncio import tasks
-
-from matplotlib import pyplot as plt
-from multiprocessing import Pool, set_start_method
-import nlopt
 import numpy as np
-from numpy import asarray as arr
 import pandas as pd
-from scipy.optimize import minimize, differential_evolution
-from scipy.stats import linregress
-import time
-import traceback
-
 from mytools.dict_tools import append_dicty
-from mytools.analysis import get_ave_data
 
 # Import model components
-from components.general_functions import get_boundaries, join_dicts, get_condcombos
 from components.run import mocs_task, run
 from components.population_code import Params, Tiling, gen_population_code
 from mytools.dframe_tools import (to_csv_pkl, index_dframe, init_cols, custom_sort)
@@ -29,35 +13,34 @@ from mytools.dframe_tools import (to_csv_pkl, index_dframe, init_cols, custom_so
 # TASK EXECUTION - Run experiments with the model
 # ============================================================================
 def run_orientation_discrimination(model, std_oris, decoder, contrasts,
-                                   run_type, n_level_reps, design='mocs'):
+                                   run_type, n_level_reps, design='mocs', **kwargs):
     """Run orientation discrimination task."""
     # Define levels of orientation difference
     if decoder == 'WTA':
         # Less accurate & very quick compared to others
         levels = np.hstack([
-            np.linspace(0.1, 1, 9),
-            np.linspace(1, 10, 9),  # Crucial range
-            np.linspace(10, 40, 5)
-        ])
+            np.linspace(0.1, 1, 5),
+            np.linspace(1, 10, 6),  # Crucial range
+            np.linspace(10, 40, 3)
+        ]
+        )
     else:
         # More accurate decoders
         levels = np.hstack([
-            np.linspace(0.05, 0.1, 5),
-            np.linspace(0.1, 1, 9),  # Crucial range
-            np.linspace(1, 5, 4)]
+            np.linspace(0.01, 0.1, 6),
+            np.linspace(0.1, 1, 6),  # Crucial range
+            np.linspace(1, 10, 6),
+            np.linspace(10, 40, 3)
+        ]
         )
 
     levels = np.unique(levels)  # Remove repeats
-
-    if np.min(levels) < model.orispace.step_size:
-        print(f"\n!!!"
-              f"\nSmallest change in orientation ({np.min(levels)}) cannot be smaller than step size ({model.orispace.step_size})"
-              f"\n!!!\n")
+    levels = np.hstack([[0, np.min(levels) / 4, np.min(levels) / 2], levels])
 
     if design == 'mocs':
         df = run(
             experiment=mocs_task, model=model, decoders=decoder, stdoris=std_oris, contrasts=contrasts,
-            run_type_=run_type, n_level_reps=n_level_reps, levels=levels, task='ori_dis'
+            run_type_=run_type, n_level_reps=n_level_reps, levels=levels, task='ori_dis', **kwargs
         )
     else:
         raise ValueError(f"Unknown design: {design}")
@@ -65,20 +48,22 @@ def run_orientation_discrimination(model, std_oris, decoder, contrasts,
     return df
 
 
-def run_contrast_detection(model, std_oris, decoder, run_type, n_level_reps):
+def run_contrast_detection(model, std_oris, decoder, run_type, n_level_reps, **kwargs):
     """Run contrast detection task."""
     levels = np.hstack([
-        np.linspace(0.1, 1, 9),
-        np.linspace(1, 10, 9),
+        np.linspace(0.1, 1, 7),
+        np.linspace(1, 10, 7),
         np.linspace(10, 30, 3),
     ])
     levels = np.unique(levels)  # Remove repeats
 
+    levels = np.hstack([[0], levels])
+
     df = run(
         experiment=mocs_task, model=model, decoders=decoder,
-        stdoris=std_oris, contrasts=[None], design='mocs',
+        stdoris=std_oris, contrasts=[None],
         run_type_=run_type, n_level_reps=n_level_reps,
-        levels=levels, task='con_det'
+        levels=levels, task='con_det', **kwargs
     )
     return df
 
@@ -124,7 +109,8 @@ class ParameterManager:
 class ModelSimulator:
     """Handles model creation and simulation."""
 
-    def __init__(self, default_params, sf_labels, sf_params, log_anisotropies=True, PRINTS=False):
+    def __init__(self, default_params, sf_labels=None, sf_params=None, log_anisotropies=True, PRINTS=False):
+        self.model = None
         self.default_params = default_params
         self.sf_labels = sf_labels
         self.sf_params = sf_params
@@ -151,22 +137,38 @@ class ModelSimulator:
 
     def create_model(self, sim_params, **kwargs):
         """Create population coding model with given parameters."""
-        cardinal_params, oblique_params = self.create_cardinal_oblique_params(sim_params)
+        # ori_space = Tiling(min_tile=-90, max_tile=90, step_size=kwargs.get('step_size', 0.1))
+        ori_space = Tiling(min_tile=kwargs['min_tile'],
+                           max_tile=kwargs['max_tile'],
+                           step_size=kwargs['step_size'])
 
-        orispace = Tiling(min_tile=-90, max_tile=90, step_size=kwargs.get('step_size', 0.05))
+        if sim_params.get('total_n') and sim_params['total_n'] % 1 > 0:
+            og_val = sim_params['total_n']
+            sim_params['total_n'] = int(sim_params['total_n'] + 0.5)
+            print(f"TOTAL N from {og_val:.2f} to {sim_params['total_n']}")
 
-        model = gen_population_code(cardinal_params, oblique_params, orispace, pref_sampling="whole",
-                                    g_params={'tuning_dist': 'von_mises', 'pooling_q': sim_params['pooling_q'],
-                                              'save_prefs': False})
+        # Global parameters
+        g_params = {'noise_type': 'poisson', 'tuning_type': sim_params.get('tuning_type', 'von_mises'), 'pooling_q': 7,
+                    'save_prefs': False}
+        for param in ['category_noise_sd', 'category_cardinal_ratio', 'template_contrast',
+                      'correlated_noise', 'corr_max', 'corr_width']:
+            g_params[param] = sim_params.get(param, None)
 
+        # Model
+        if kwargs.get('model_type') == 'efficient_coding':
+            model = gen_efficient_popcode(sim_params, ori_space=ori_space, global_params=g_params, debug=False)
+        else:
+            cardinal_params, oblique_params = self.create_cardinal_oblique_params(sim_params)
+            model = gen_population_code(cardinal_params, oblique_params, ori_space, pref_sampling="whole",
+                                        global_params=g_params)
         return model
 
     def run_task(self, model, taskname, std_oris, decoder, run_type, n_level_reps, contrasts=(100), **kwargs):
         """Execute specified task with the model."""
         if taskname == 'con_det':
-            return run_contrast_detection(model, std_oris, decoder, run_type, n_level_reps)
+            return run_contrast_detection(model, std_oris, decoder, run_type, n_level_reps, **kwargs)
         elif taskname == 'ori_dis':
-            return run_orientation_discrimination(model, std_oris, decoder, contrasts, run_type, n_level_reps)
+            return run_orientation_discrimination(model, std_oris, decoder, contrasts, run_type, n_level_reps, **kwargs)
         else:
             raise ValueError(f"Unknown task: {taskname}")
 
@@ -183,7 +185,6 @@ class ModelSimulator:
         sim_params = {**self.default_params}  # Default params
 
         sim_variable_params = sim_variable_params.copy()  # <-- make local copy
-
         if self.log_anisotropies is True:
             # Convert back to ratio for consistency with model code
             for param, val in sim_variable_params.items():
@@ -193,48 +194,51 @@ class ModelSimulator:
         # Overwrite with variable (free) parameters
         sim_params.update(sim_variable_params)
 
-        # print(f"\nDefault params: {self.default_params}")
-        # print(f"Simulation params: {variable_params}")
         formatted_params = {k: str((round(v, 2)) if isinstance(v, float) else v)
                             for k, v in sim_variable_params.items()}
-
-        self.PRINTS = False
         if self.PRINTS is True:
             print(f"\nSimulation params: {formatted_params}")
 
         # Run simulation for each condition
         data_dict = {}
         all_data = []
-        sf_labels = [str(_i) for _i in self.sf_labels]
+        sf_labels = [str(_i) for _i in self.sf_labels] if self.sf_labels else ['cond']
         for idx, cond_label in enumerate(sf_labels):
             # print(f">>> SF {cond_label}")
-            # Cannot run with clashes between free parameters and sf_params
-            if any(item in sim_variable_params for item in self.sf_params):
-                raise ValueError("Parameter shared between sf_params and variable_params")
+            cond_params = sim_params.copy()  # init
 
-            cond_params = sim_params.copy()
+            if self.sf_params:
+                # Cannot run with clashes between free parameters and sf_params
+                if any(item in sim_variable_params for item in self.sf_params):
+                    raise ValueError("Parameter shared between sf_params and variable_params")
 
-            for param in self.sf_params:
-                cond_params[param] = self.sf_params[param][idx]  # Overwrite with specific condition
+                for param in self.sf_params:
+                    cond_params[param] = self.sf_params[param][idx]  # Overwrite with specific condition
+
+            # Separate base model from template model
+            base_params = {k: v for k, v in cond_params.items() if not
+            k.startswith('template_') or k == 'template_contrast'}
 
             # Apply anisotropies
-            cond_params = self.param_manager.apply_anisotropy_fractions(cond_params)
+            base_params = self.param_manager.apply_anisotropy_fractions(base_params)
 
             # Create and run model
-            model = self.create_model(cond_params, **config)
+            base_model = self.create_model(base_params, **config)
+            self.model = base_model
 
             # Average over multiple evaluations to reduce impact of noise
             run_config = copy.deepcopy(config)
-            run_config.update({'model': model, 'taskname': task, 'decoder': decoder})
+            run_config.update({'model': base_model, 'taskname': task, 'decoder': decoder})
 
+            # ========== Run ========== #
             result_df = pd.concat([self.run_task(**run_config) for _ in range(n_eval)])
 
             result_df['cond'] = cond_label
             for i_param in sim_params:
                 result_df[i_param] = sim_params[i_param]
 
-            cardinalT = result_df[result_df['ori_std'] == 0]['threshold'].median()
-            obliqueT = result_df[result_df['ori_std'] == 45]['threshold'].median()
+            cardinalT = result_df[result_df['ori_std'] == 0]['threshold'].mean()
+            obliqueT = result_df[result_df['ori_std'] == 45]['threshold'].mean()
             oei = obliqueT / cardinalT
 
             result_df['cardinalT'] = cardinalT
@@ -295,3 +299,4 @@ def extract_output_measures(data, measure):
 
     # return output
     return output_test
+

@@ -15,13 +15,12 @@ This project is split into two main sections.
 - To analyse the behavioural data, please run `analysis.py`
 - To create graphs, please run `graphs.py`
 
-**Modelling eLife/** 
+**Modelling/** 
 - This directory contains the model code.
 - For an overview of the model architecture, please see:
   - `Modelling Flow.ipynb`
 - To see how best-fitting parameters are obtained, please see:
   - `ParamFits.py`
-  - Guidance in `parameter_fitting_walkthrough.ipynb`
 - To see how the model graphs are created in practice, please see:
   - `fitGraphs.py`
 

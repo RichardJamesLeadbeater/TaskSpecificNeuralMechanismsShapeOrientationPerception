@@ -16,11 +16,14 @@ def logistic_func(x, a, b, intercept=0.5):
 def fit_logistic(x, y, maxfev=1000, p0=None, bounds=(-np.inf, np.inf)):
     # set default
     if p0 is None:
-        p0 = [np.mean(x), 2]  # starting parameters for mod_orispace fit
+        p0 = [np.mean(x), 0.5]  # starting parameters for mod_orispace fit
+
     if bounds == (-np.inf, np.inf):
-        bounds = ([0, 0.1], [x.max(), 10])  # bounds for threshold and slope (higher vals = more gradual slope)
+        bounds = ([x.min(), 0.2], [x.max(), 10])  # bounds for threshold and slope (higher vals = more gradual slope)
+
     x = np.asarray(x)
     y = np.asarray(y)
+
     # determine params of logistic mod_orispace using least-squares method
     popt, pcov = curve_fit(logistic_func, x, y, method='trf', maxfev=maxfev, p0=p0, bounds=bounds)
     # popt, pcov = curve_fit(logistic_function, x_vals, y_vals, method='lm', maxfev=4000)

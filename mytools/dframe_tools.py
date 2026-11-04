@@ -29,20 +29,21 @@ def change_dframe_labels(dframe, col, old_labels=None, new_labels=None):
 
 
 def change_dframe_colnames(dframe, old_colnames, new_colnames):
-    """ Change multiple column names in DataFrame """
-    og_colnames = dframe.columns.to_list()
-    updated_colnames = [col for col in og_colnames]  # Create copy of og_cols in og order
-    output_dframe = dframe.copy()
-    for idx in range(len(old_colnames)):
-        old = old_colnames[idx]
-        new = new_colnames[idx]
-        # Update column names
-        for col_idx, col in enumerate(og_colnames):
-            if col == old:
-                updated_colnames[col_idx] = new  # Replace label in list of colnames in order
-                output_dframe[new] = dframe[old]  # Add copy of og_column under new colname
-    output_dframe = output_dframe[updated_colnames]  # Use only these colnames
-    return output_dframe
+    """Return a copy of a DataFrame with selected columns renamed."""
+    if len(old_colnames) != len(new_colnames):
+        raise ValueError("old_colnames and new_colnames must have equal lengths")
+
+    missing = set(old_colnames) - set(dframe.columns)
+    if missing:
+        raise KeyError(f"Columns not found: {sorted(missing)}")
+
+    renamed = dframe.rename(columns=dict(zip(old_colnames, new_colnames)))
+
+    if renamed.columns.duplicated().any():
+        duplicates = renamed.columns[renamed.columns.duplicated()].tolist()
+        raise ValueError(f"Renaming would create duplicate columns: {duplicates}")
+
+    return renamed
 
 
 def index_dframe(dframe, columns, values, index_filter='and'):

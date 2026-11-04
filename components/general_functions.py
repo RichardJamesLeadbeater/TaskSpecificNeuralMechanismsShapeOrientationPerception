@@ -16,64 +16,33 @@ from numpy import nan
 from scipy import special
 
 
-def asarray(*args, **kwargs):
-    # creates function that forces to float16
-    kwargs.setdefault("dtype", np.float32)
-    return np.array(*args, **kwargs)
-
-
-def save_attrib(attrib, label, path=None):
-    # save method for externally saved attribs
-    # must save filenames in this format f"{label}.npy"
-    if path is None:
-        path = os.path.join(os.getcwd(), 'components', 'attribs')
-    with open(os.path.join(path, f"{label}.pkl"), "wb") as file:
-        pickle.dump(attrib, file, protocol=pickle.HIGHEST_PROTOCOL)
-
-
-def get_attrib(label, path=None):
-    # getter method for externally saved attributes
-    # must save filenames in this format f"{label}.npy"
-    if path is None:
-        path = os.path.join(os.getcwd(), 'components', 'attribs')
-    tic = time.time()
-    with open(os.path.join(path, f"{label}.pkl"), 'rb') as file:
-        attrib = pickle.load(file)
-    print(f'pickle load: {time.time() - tic}')
-    return attrib
-
-
-def get_boundaries(base_ori, bound_range, abs_max_ori):
-    # multiple boundaries across circular orispace (allows for shifting prefs window)
-    base_oris = np.arange(base_ori - abs_max_ori, base_ori + abs_max_ori + 1, 180)
-    base_oris = base_oris[(base_oris >= -abs_max_ori) & (base_oris <= abs_max_ori)]  # only within tiling range
-    boundaries = [[]] * len(base_oris)
-    for idx, val in enumerate(base_oris):
-        boundaries[idx] = [val - (bound_range / 2), val + (bound_range / 2)]
-    return boundaries
-
-
 def convert_to_circular_space(vals, space_range):
     """Wrap values around/within defined circular space"""
     bound = space_range // 2
     return ((arr(vals) + bound) % space_range) - bound
 
 
-def find_nearest(array, values):  # nearest value and index in array for each value
-    """
-    Find nearest value(s) and index(es) in `array` for each element in `values`.
-    """
-    array = np.asarray(array)
-    values = np.atleast_1d(values)
+def find_nearest(input_array, values):
+    """Find nearest value and index in array for each element of values."""
 
-    # Compute absolute difference for all values at once
-    diff = np.abs(array[None, :] - values[:, None])  # shape: [len(values), len(array)]
+    input_array = np.asarray(input_array)
+    values = np.asarray(values)
+
+    # Flatten values for vectorised nearest-neighbour calculation.
+    original_shape = values.shape
+    values_flat = values.ravel()
+
+    diff = np.abs(input_array[None, :] - values_flat[:, None])
     nearest_idx = diff.argmin(axis=1)
-    nearest_values = array[nearest_idx]
+    nearest_values = input_array[nearest_idx]
 
-    # Return scalar if input was scalar
-    if np.isscalar(values) or values.shape == (1,):
-        return nearest_values[0], nearest_idx[0]
+    # Restore the shape of the input.
+    nearest_idx = nearest_idx.reshape(original_shape)
+    nearest_values = nearest_values.reshape(original_shape)
+
+    # Return scalar for scalar input.
+    if values.ndim == 0:
+        return nearest_values.item(), nearest_idx.item()
 
     return nearest_values, nearest_idx
 
@@ -138,22 +107,20 @@ def generate_cosine(x, n_cycles=1, inverse=False):
     return y
 
 
-def generate_vonmises(x, prefs, kappa, input_format='rad', normalise=False):
+def generate_vonmises(x, prefs, kappa, input_format='rad'):
     if input_format == 'deg':  # orispace in radians
         x = np.radians(x)
         prefs = np.radians(prefs)
 
-    # see Swindale (1998) for clear equations and HWHM calculation
-    p1 = kappa.T * (np.cos(2 * (x[:, nax] - prefs)))
-    tunings = np.exp(p1).T
+    # Swindale (1998): von Mises tuning function
+    p1 = kappa.T * np.cos(2 * (x[:, nax] - prefs))
 
-    # TEST between 0 and 1
-    tunings2 = np.exp(p1 - 1).T
+    # Calculate normalisation in log space to avoid overflow
+    log_normalisation = np.log(2 * np.pi) + np.abs(kappa) + np.log(special.i0e(kappa))
 
-    # Normalise to make area under each curve equal to 1 over the chosen angular domain
-    if normalise is True:
-        normalisation_constant = np.pi * special.i0(kappa)  # multiply by 2 if angular space between 0 & 360 deg
-        tunings = tunings / normalisation_constant
+    # Normalise in log space, then exponentiate
+    log_tunings = p1.T - log_normalisation
+    tunings = np.exp(log_tunings)
 
     # plt.plot(tunings[::20, :].T)
 
@@ -284,4 +251,3 @@ def poissonlike_noise(array, scale=1):
     # mean_fano = np.mean(np.var(array + noise, axis=1) / np.mean(array, axis=1))  # should approx scalar
 
     return noise
-
