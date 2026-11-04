@@ -47,18 +47,6 @@ def find_nearest(input_array, values):
     return nearest_values, nearest_idx
 
 
-def sort_by_standard(standard, *args):
-    # sorts arrays with inds matching ascending order of standard
-    standard = np.asarray(standard)
-    inds = standard.argsort()  # gets indices of sorted standard
-    sorted_arrays = [standard[inds[::1]]]  # create list with first element as sorted standard
-    for i_arg in args:
-        i_arg = np.asarray(i_arg)
-        sorted_arrays.append(i_arg[inds[::1]])  # append arrays sorted to inds of standard
-    # sorted in ascending numerical order [::1]
-    return sorted_arrays
-
-
 def rolling_window(vector, window):
     # create rolling window across vector
     m = len(vector) - len(window)
@@ -153,31 +141,9 @@ def normalise(x, val_start=None, val_end=None, scalar=None, _invert=False):
     return y
 
 
-def angles_equal(x, y, units='deg'):
-    # compare whether two angles are equivalent by converting to radians and using remainder of pi
-    if units == 'deg':
-        x, y = np.radians(x), np.radians(y)
-    # rounding provides precision up to 5 dec places
-    return np.round(x % np.pi, 6) == np.round(y % np.pi, 6)
-
-
 def run_function_and_unpack_args_kwargs(fn, args, kwargs):
     # performs function with packed args and kwargs
     return fn(*args, **kwargs)
-
-
-def join_dicts(dict1, dict2):
-    # only works with identical keys
-    output = {}
-    for key in dict1:  # init list in each key
-        output[key] = []
-    for key in dict1:  # join values from shared keys in each dict
-        for idx, val_ in enumerate(dict1[key]):
-            try:
-                output[key].append([dict1[key][idx], dict2[key][idx]])
-            except KeyError:
-                print('\n>\terror when joining dicts\n')
-    return output
 
 
 def remove_list_repeats(listy):

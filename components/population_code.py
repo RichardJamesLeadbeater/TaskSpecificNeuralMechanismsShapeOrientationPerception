@@ -3,6 +3,9 @@ from numpy import asarray as arr, newaxis as nax
 from scipy.linalg import hankel
 from scipy.optimize import minimize
 import random
+
+from scipy.special import logsumexp
+
 from .general_functions import find_nearest, generate_gaussian, generate_cosine, \
     generate_vonmises, convert_to_circular_space, \
     normalise, poissonlike_noise, generate_wrapped_gaussian
@@ -104,7 +107,6 @@ class Params:
                 self.kappa = np.log(0.5) / (np.cos(2 * h) - 1)  # Swindale (1998)
 
 
-
 class Tiling:
     """tiling of feature space"""
 
@@ -165,19 +167,6 @@ class PopulationCode:
         self._corr_noise_cache_key = None
         self._corr_noise_sqrt = None
         self._corr_noise_cholesky = None
-
-    def save_attrib(self, attrib_label, path=None, _replace=True):
-        # save out attrib and replace og with None
-        save_attrib(self.__dict__[attrib_label], f"{self.name}_{attrib_label}", path)
-        if _replace is True:
-            self.__dict__[attrib_label] = None  # .get_tiling() needed
-
-    def get_attrib(self, attrib_label, path=None, _save_internal=False):
-        attrib = get_attrib(f"{self.name}_{attrib_label}", path)  # returns tiling array
-        if _save_internal is True:
-            self.__dict__[attrib_label] = attrib
-        return attrib
-
 
     def rolling_window(self, vector=None, window=None):
         # create rolling prefs window (where each col = pref) across any range of space
@@ -771,94 +760,6 @@ class PopulationCode:
 
             return post_mean
 
-    def target_vs_nontarget_log_L_ratio(self, response=None, target_oris=0, nontarget_oris=None,
-                                        match_nontarget_and_resp_oris=False, window=False):
-        """
-        Compute target vs pooled non-target log likelihood ratio for each stimulus/repetition.
-
-        Parameters:
-            response: Response array with shape (n_neurons, n_stim, n_reps).
-            target_oris: Target orientation.
-            nontarget_oris: Non-target orientations with shape
-                (n_nontargets,), (n_nontargets, n_reps), or None.
-            match_nontarget_and_resp_oris:
-                If True, use the non-target orientation corresponding to each
-                stimulus/repetition rather than pooling over orientations.
-            use_window: Whether to use the selected orientation tuning window.
-
-        Returns:
-            Log likelihood ratio array with shape (n_stim, n_reps).
-        """
-        response = self.resp_noisy if response is None else response
-        tunings = self.tunings
-        tiling = self.ori_space.tiling
-        prior_ori = self.prior_ori
-
-        # Apply orientation window if possible
-        if window is True:
-            min_idx, max_idx = self.get_tuning_window()
-            tunings = self.tunings[:, min_idx:max_idx]
-            tiling = self.ori_space.tiling[min_idx:max_idx]
-            if prior_ori is not None:
-                prior_ori = prior_ori[min_idx:max_idx]
-
-        n_neurons, n_stim, n_reps = response.shape
-
-        # Flatten observations: (n_stim * n_reps, n_neurons).
-        response_flat = response.reshape(n_neurons, -1).T.astype(np.float32)
-
-        # Poisson log likelihood for each observation/orientation.
-        log_tuning_rates = np.log(np.clip(tunings, 1e-10, None))
-        log_L = response_flat @ log_tuning_rates - np.sum(tunings, axis=0)
-
-        #!flag
-        _posterior = False
-        if _posterior:
-            # Stimulus prior used by the efficient-coding model.
-            # prior_ori = np.ones(len(prior_ori))
-            prior_ori = prior_ori / prior_ori.sum()
-            # Add the natural orientation prior to obtain the posterior.
-            log_post = log_L + np.log(np.clip(prior_ori, 1e-12, None))
-            log_post -= logsumexp(log_post, axis=1, keepdims=True)
-            # for now call log_L the posterior
-            log_L = log_post
-
-        # Target likelihood: (n_stim, n_reps).
-        target_oris, target_idcs = find_nearest(tiling, target_oris)
-
-        if len(np.atleast_1d(target_oris)) == 1:
-            log_L_target = log_L[:, target_idcs]
-            log_L_target = log_L_target.reshape(n_stim, n_reps)
-
-        elif target_oris.ndim == 1:
-            log_L_target = log_L[np.arange(n_stim), :, target_idcs]
-
-        elif target_oris.ndim == 2:
-            target_idcs = target_idcs.ravel()
-            log_L_target = log_L[np.arange(log_L.shape[0]), target_idcs]
-            log_L_target = log_L_target.reshape(n_stim, n_reps)
-
-        # -------------------
-        # If the nontarget_oris correspond to the stim_oris defining the response
-        # -------------------
-        if match_nontarget_and_resp_oris is True:
-            nontarget_oris, nontarget_idcs = find_nearest(tiling, nontarget_oris)
-
-            if nontarget_oris.ndim == 1:
-                log_L_nontarget = log_L[np.arange(n_stim), :, nontarget_idcs]
-
-            elif nontarget_oris.ndim == 2:
-                nontarget_idcs = nontarget_idcs.ravel()
-                log_L_nontarget = log_L[np.arange(log_L.shape[0]), nontarget_idcs]
-                log_L_nontarget = log_L_nontarget.reshape(n_stim, n_reps)
-
-            LLR = log_L_target - log_L_nontarget
-
-        # -------------------
-        # TODO POOL LIKELIHOOD MIXTURE OF OTHER ORIENTATIONS
-        # -------------------
-
-        return LLR
 
     def get_tuning_window(self, buffer=30, stim_ori=None):
         """Return tuning curves and corresponding orientation tiling."""
@@ -882,62 +783,6 @@ class PopulationCode:
 
         return min_idx, max_idx
 
-    def convert_to_category_space(self, ori, category_noise_sd=0.05, _noise_choice=None):
-
-        ori = np.asarray(ori)
-        # Sensory prior
-        theta = np.radians(self.ori_space.tiling)
-
-        category_cardinal_ratio = self.global_params['category_cardinal_ratio']
-
-        # Normalise the orientation prior
-        prior_ori = cardinal_orientation_prior(theta, np.min(theta), category_cardinal_ratio)
-        prior_ori /= trapezoid(prior_ori, theta)  # Correct small numerical integration error.
-
-        # Veridical -> category space, giving values from 0 to 1
-        # Construct warping function
-        category_space = cumulative_trapezoid(prior_ori, theta, initial=0.0)
-        category_space = (category_space / category_space[-1] - 0.5) * 2 * self.ori_space.max_tile
-
-        # plt.plot(self.ori_space.tiling, category_space)
-        # plt.xlabel('Veridical Orientation Space')
-        # plt.ylabel('Category Orientation Space')
-        # plt.show()
-
-        # Create veridical -> category transformation
-        veridical_to_category = interp1d(theta, category_space, kind='linear', bounds_error=True)
-        if _noise_choice is None:
-            # Convert from veridical (perception) to category space
-            ori_radians = np.radians(ori)
-            category_value = veridical_to_category(ori_radians)
-
-            #!flag Extra stage of processing after generating categorised value... why?
-
-        elif _noise_choice == 'late':
-            # Convert from veridical (perception) to category space
-            ori_radians = np.radians(ori)
-            category_value = veridical_to_category(ori_radians)
-
-            # Currently only a linear transform has been performed, so won't change decision
-            # If noise added to category estimate, then you would influence decisions (category conversion cost)
-            category_noise = np.random.randn(*category_value.shape) * category_noise_sd
-
-            category_value = category_value + category_noise
-
-        elif _noise_choice == 'early':
-
-            category_noise = np.random.randn(*ori.shape) * category_noise_sd
-            # Convert from veridical (perception) to category space
-            ori_radians = np.radians(ori + category_noise)
-
-            category_value = veridical_to_category(ori_radians)
-
-            # Currently only a linear transform has been performed, so won't change decision
-            # If noise added to category estimate, then you would influence decisions (category conversion cost)
-        else:
-            category_value = None
-
-        return category_value
 
     def ori_reproduction_check(self, stim_oris=None, category_noise_sd=None, contrast=100, n_level_reps=200,
                                prior=True, show_plots=False, save_path=''):
@@ -960,20 +805,6 @@ class PopulationCode:
                          mean_repro_error + sd_repro_error, alpha=0.2)
         plt.xlabel("Stimulus Orientation")
         plt.ylabel("Veridical error")
-
-        # Save the figure if a path is supplied.
-        if save_path:
-            if os.path.splitext(save_path)[1]:
-                # Treat paths with an extension as complete filenames.
-                save_dir = os.path.dirname(save_path)
-                if save_dir:
-                    os.makedirs(save_dir, exist_ok=True)
-                plt.savefig(save_path, bbox_inches='tight', dpi=300)
-            else:
-                # Treat paths without an extension as directories.
-                os.makedirs(save_path, exist_ok=True)
-                plt.savefig(os.path.join(save_path, 'ori_reproduction_check.png'),
-                            bbox_inches='tight', dpi=300)
 
         if show_plots:
             plt.show()

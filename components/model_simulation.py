@@ -155,12 +155,10 @@ class ModelSimulator:
             g_params[param] = sim_params.get(param, None)
 
         # Model
-        if kwargs.get('model_type') == 'efficient_coding':
-            model = gen_efficient_popcode(sim_params, ori_space=ori_space, global_params=g_params, debug=False)
-        else:
-            cardinal_params, oblique_params = self.create_cardinal_oblique_params(sim_params)
-            model = gen_population_code(cardinal_params, oblique_params, ori_space, pref_sampling="whole",
-                                        global_params=g_params)
+        cardinal_params, oblique_params = self.create_cardinal_oblique_params(sim_params)
+        model = gen_population_code(cardinal_params, oblique_params, ori_space, pref_sampling="whole",
+                                    global_params=g_params)
+
         return model
 
     def run_task(self, model, taskname, std_oris, decoder, run_type, n_level_reps, contrasts=(100), **kwargs):
@@ -262,41 +260,4 @@ class ModelSimulator:
         # output = extract_output_measures(data_dict, measure)
 
         return output
-
-
-# ============================================================================
-# OUTPUT ANALYSIS - Extract measures from task results
-# ============================================================================
-
-def extract_output_measures(data, measure):
-    """
-    Extract performance measures from task data.
-    """
-    output = {}
-
-    output_test = init_cols(['task', 'cond', 'decoder', 'OEI', 'cardinalT', 'obliqueT'], [])
-    for cond, df in data.items():
-        cardinal_df = df[df['ori_std'] == 0]
-        oblique_df = df[df['ori_std'] == 45]
-
-        cardinal_threshold = cardinal_df['threshold'].mean()
-        oblique_threshold = oblique_df['threshold'].mean()
-
-        # Oblique Effect Index
-        oei = oblique_threshold / cardinal_threshold
-
-        if measure == 'OEI':
-            output[cond] = oei
-        elif measure == 'thresholds':
-            output[cond] = [cardinal_threshold, oblique_threshold]
-        elif measure == 'combined':
-            output[cond] = [cardinal_threshold, oblique_threshold, oei]
-
-        task = df['task'].iloc[0]
-        decoder = df['decoder'].iloc[0]
-
-        append_dicty(output_test, [task, cond, decoder, oei, cardinal_threshold, oblique_threshold])
-
-    # return output
-    return output_test
 
