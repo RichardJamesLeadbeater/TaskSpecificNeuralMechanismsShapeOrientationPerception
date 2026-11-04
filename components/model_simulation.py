@@ -150,7 +150,7 @@ class ModelSimulator:
         # Global parameters
         g_params = {'noise_type': 'poisson', 'tuning_type': sim_params.get('tuning_type', 'von_mises'), 'pooling_q': 7,
                     'save_prefs': False}
-        for param in ['category_noise_sd', 'category_cardinal_ratio', 'template_contrast',
+        for param in ['category_noise_sd', 'category_cardinal_ratio',
                       'correlated_noise', 'corr_max', 'corr_width']:
             g_params[param] = sim_params.get(param, None)
 
@@ -213,9 +213,8 @@ class ModelSimulator:
                 for param in self.sf_params:
                     cond_params[param] = self.sf_params[param][idx]  # Overwrite with specific condition
 
-            # Separate base model from template model
-            base_params = {k: v for k, v in cond_params.items() if not
-            k.startswith('template_') or k == 'template_contrast'}
+            # Base model
+            base_params = {k: v for k, v in cond_params.items()}
 
             # Apply anisotropies
             base_params = self.param_manager.apply_anisotropy_fractions(base_params)
@@ -253,7 +252,6 @@ class ModelSimulator:
 
             all_data.append(summary_result_df)
 
-        # flag
         output = pd.concat(all_data)
 
         # Extract output measures

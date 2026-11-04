@@ -53,9 +53,7 @@ def mocs_task(model, decoder, ori_std, contrast, task='', **kwargs):
         null_resp = pooled_resp[n_lvl:, :]
         is_corr = probe_resp > null_resp
 
-    elif task in ['ori_dis', 'ori_id']:
-        # #!flag
-        # levels = np.linspace(0, 45, 15)
+    elif task in ['ori_dis']:
 
         # Discriminate orientations
         std_oris = [ori_std] * n_lvl
@@ -98,107 +96,6 @@ def mocs_task(model, decoder, ori_std, contrast, task='', **kwargs):
                 is_corr = comp_decoded > std_decoded
             else:
                 is_corr = comp_decoded < std_decoded
-
-        elif task == 'ori_id':
-
-            id_decision = 'template_decoded'  # 'template_decoded', 'similarity', 'LLR'
-
-            if id_decision == 'LLR':
-                # COMPARING HYPOTHESES OF TARGET VS NON-TARGET
-                # 2. Compare with individual decoded comparison orientations
-                llr_std = model.target_vs_nontarget_log_L_ratio(std_response, target_oris=ori_std,
-                                                                nontarget_oris=std_decoded,
-                                                                match_nontarget_and_resp_oris=True)
-
-                llr_comp = model.target_vs_nontarget_log_L_ratio(comp_response, target_oris=ori_std,
-                                                                 nontarget_oris=comp_decoded,
-                                                                 match_nontarget_and_resp_oris=True)
-
-                # What's more likely to cause template response, decoded template ori or comparison?
-                decoded_template = model.template_model.decode_response(
-                    decoder, std_oris, contrast, n_reps=n_level_reps, window=False
-                )
-                template_resp = model.template_model.resp_noisy
-                llr_template_comp = model.target_vs_nontarget_log_L_ratio(
-                    template_resp, target_oris=decoded_template, nontarget_oris=comp_decoded,
-                    match_nontarget_and_resp_oris=True
-                )
-                llr_template_std = model.target_vs_nontarget_log_L_ratio(
-                    template_resp, target_oris=decoded_template, nontarget_oris=std_decoded,
-                    match_nontarget_and_resp_oris=True
-                )
-
-                is_corr = llr_std > llr_comp
-                # is_corr = llr_comp < 0
-
-            elif id_decision == 'similarity':
-                    # COSINE SIMILARITY BETWEEN ACTIVITY PATTERNS RATHER THAN EXPLICITLY DECODING ORIENTATIONS
-                    _template_type = 'noiseless'  # 'reactivation'
-
-                    if _template_type == 'reactivation':
-                        template_response_1 = model.template_model.gen_stim_response(
-                            std_oris, model.global_params['template_contrast'], n_level_reps
-                        )
-                        template_response_2 = model.template_model.gen_stim_response(
-                            std_oris, model.global_params['template_contrast'], n_level_reps
-                        )
-                    elif _template_type == 'noiseless':
-                        model.template_model.gen_stim_response(
-                            std_oris, model.global_params['template_contrast'], n_level_reps
-                        )
-                        template_response_1 = model.template_model.resp_tuned + model.param_distribs['spont'][:, None, None]
-                        template_response_2 = model.template_model.resp_tuned + model.param_distribs['spont'][:, None, None]
-
-                    _similarity_metric = 'l2'
-
-                    # L1 difference: sum of absolute neuron-by-neuron differences.
-                    if _similarity_metric == 'l1':
-                        # std_l1_distance = np.sum(np.abs(std_response - template_response_1), axis=0)
-                        # comp_l1_distance = np.sum(np.abs(comp_response - template_response_2), axis=0)
-
-                        # Mean absolute difference across neurons
-                        std_l1_distance = np.mean(np.abs(std_response - template_response_1), axis=0)
-                        comp_l1_distance = np.mean(np.abs(comp_response - template_response_2), axis=0)
-
-                        # Convert distance to similarity
-                        std_similarity = 1 / (1 + std_l1_distance)
-                        comp_similarity = 1 / (1 + comp_l1_distance)
-
-                    # L2 difference: Euclidean distance between the two response vectors.
-                    elif _similarity_metric == 'l2':
-                        std_l2_distance = np.linalg.norm(std_response - template_response_1, axis=0)
-                        comp_l2_distance = np.linalg.norm(comp_response - template_response_2, axis=0)
-
-                        # Convert distance to similarity
-                        std_similarity = 1 / (1 + std_l2_distance)
-                        comp_similarity = 1 / (1 + comp_l2_distance)
-
-                    # Compare whole neural activation patterns, across neurons.
-                    else:
-                        std_similarity = np.sum(std_response * template_response_1, axis=0) / (
-                                np.linalg.norm(std_response, axis=0) *
-                                np.linalg.norm(template_response_1, axis=0)
-                        )
-                        comp_similarity = np.sum(comp_response * template_response_2, axis=0) / (
-                                np.linalg.norm(comp_response, axis=0) *
-                                np.linalg.norm(template_response_2, axis=0)
-                        )
-
-                    is_corr = std_similarity > comp_similarity
-
-            elif id_decision == 'template_decoded':
-                reactivate_template = True
-                if reactivate_template:
-                    # Generate template orientation
-                    template_ori = model.template_model.decode_response(
-                        decoder, std_oris, model.global_params['template_contrast'], n_reps=n_level_reps,
-                        prior=kwargs.get('prior'), window=False
-                    )
-                    # Which stimulus was closest to the template orientation (internall generated)
-                    is_corr = abs(std_decoded - template_ori) < abs(comp_decoded - template_ori)
-
-            else:
-                is_corr = None
 
     proportion_correct = np.mean(is_corr, axis=1)  # Proportion correct
     rawdata = pd.DataFrame({'level': levels, 'propn_corr': proportion_correct})

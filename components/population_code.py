@@ -59,7 +59,7 @@ class Params:
                  pooling=None, noise_scale=1, noise_type='poisson', correlated_noise=None,
                  baseline_params=None, pooling_exponent=None, pooling_extent=None, run_n_prefs=None, run_density=None,
                  run_sampling_rate=None, boundaries=None, std_ori=None, pooling_q=None,
-                 template_popcode=None):
+                 ):
         # use dict to set attributes
         if isinstance(dicty, dict):
             for i_key in Params().__dict__:
@@ -70,7 +70,7 @@ class Params:
         else:
             # set model parameters to be varied
             self.deg_per_pref = deg_per_pref  # neurons per degree
-            self.n_prefs = n_prefs  # todo sampling alternative
+            self.n_prefs = n_prefs
             self.pref_distrib = pref_distrib
             self.param_distrib = param_distrib
             self.pref_range = pref_range
@@ -96,8 +96,7 @@ class Params:
             self.run_n_prefs = run_n_prefs
             self.run_density = run_density  # nrn per deg
             self.run_sampling_rate = run_sampling_rate  # deg per nr
-            # Template PopCod
-            self.template_popcode = template_popcode
+
         # Calculate sigma from FWHM
         if self.fwhm is not None:
             if self.sigma is None:
@@ -154,11 +153,6 @@ class PopulationCode:
             name = 'populationcode'
         self.name = name
         self.saved_response = {}  # saves decoded vals in dict key=stim_ori
-        # Template popcode
-        self.template_model = None
-        self.template_decoder = None
-        self.template_contrast = None
-        self.decoded_template = None
 
         self.window_idcs = None
 
@@ -216,14 +210,6 @@ class PopulationCode:
         # Define distribution curve for cardinal and oblique parameters
         self.gen_anisotropic_distribution()
         self.generate_prefs()  # sampled orientation preferences
-
-        # Check sampling rates - difference between adjacent prefs
-        # prefs = self.prefs
-        # diffs = [abs(_i - prefs[_idx + 1]) for _idx, _i in enumerate(prefs) if _idx < len(prefs) - 1]
-        # fig = plt.plot(prefs[:-1], diffs)
-        # fig[0].axes.set(xlabel="Orientation Preference", xticks=np.linspace(-180, 180, 9),
-        #                 ylabel="Spacing from adjacent pref [i+1]")
-        # plt.close('all')
 
         self.generate_params()  # parameters for each neuron sampled according to orientation preference
         self.generate_tunings()  # tuning curve for each pref
@@ -598,7 +584,6 @@ class PopulationCode:
         if resp is None:
             resp = self.resp_noisy
         if q is None:
-            # q was 6 in thesis
             q = self.global_params['pooling_q']  # scalar (if diff for each nrn then reshape)
 
         pooled_val = np.sum(resp ** q, 0) ** (1 / q)  # sum and return to og units
@@ -730,36 +715,13 @@ class PopulationCode:
         log_tunings = np.log(np.clip(tunings, 1e-10, None))
         log_L = resp_flat.T @ log_tunings - np.sum(tunings, axis=0)
 
-        if not prior:
-            # Select maximum-likelihood orientation.
-            ml_est = tiling[log_L.argmax(axis=1)]
+        # Select maximum-likelihood orientation.
+        ml_est = tiling[log_L.argmax(axis=1)]
 
-            # Reshape into multiple repetitions of each stimulus orientation
-            ml_est = ml_est.reshape(resp.shape[1:])
+        # Reshape into multiple repetitions of each stimulus orientation
+        ml_est = ml_est.reshape(resp.shape[1:])
 
-            return ml_est
-
-        else:
-            # Stimulus prior used by the efficient-coding model.
-            # prior_ori = np.ones(len(prior_ori))
-            prior_ori = prior_ori / prior_ori.sum()
-
-            # Add the natural orientation prior to obtain the posterior.
-            log_post = log_L + np.log(np.clip(prior_ori, 1e-12, None))
-
-            #!flag don't combine with prior
-            # log_post = log_L
-
-            log_post -= logsumexp(log_post, axis=1, keepdims=True)
-            post = np.exp(log_post)
-
-            # L2 loss gives the posterior mean.
-            post_mean = np.sum(post * tiling[None, :], axis=1)
-
-            post_mean = post_mean.reshape(resp.shape[1:])
-
-            return post_mean
-
+        return ml_est
 
     def get_tuning_window(self, buffer=30, stim_ori=None):
         """Return tuning curves and corresponding orientation tiling."""
